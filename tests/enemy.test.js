@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Enemy, ENEMY_TYPES, EnemySpawner } from '../js/enemy.js';
+import { Enemy, ENEMY_TYPES, EnemySpawner, Champion, CHAMPION_CONFIG, CHAMPION_FUSION_THRESHOLD } from '../js/enemy.js';
 
 describe('Enemy', () => {
     let enemy;
@@ -326,6 +326,284 @@ describe('EnemySpawner', () => {
                 expect(dist).toBeLessThanOrEqual(spawnDist.max * 1.01);
             }
         });
+    });
+});
+
+describe('Champion', () => {
+    let heatChampion;
+    let coldChampion;
+    let forceChampion;
+
+    beforeEach(() => {
+        heatChampion = new Champion(100, 200, 'heat');
+        coldChampion = new Champion(100, 200, 'cold');
+        forceChampion = new Champion(100, 200, 'force');
+    });
+
+    describe('constructor', () => {
+        it('should initialize at given position', () => {
+            expect(heatChampion.x).toBe(100);
+            expect(heatChampion.y).toBe(200);
+        });
+
+        it('should have isChampion flag set to true', () => {
+            expect(heatChampion.isChampion).toBe(true);
+            expect(coldChampion.isChampion).toBe(true);
+            expect(forceChampion.isChampion).toBe(true);
+        });
+
+        it('should use champion base stats', () => {
+            expect(heatChampion.radius).toBe(CHAMPION_CONFIG.radius);
+            expect(heatChampion.speed).toBe(CHAMPION_CONFIG.speed);
+            expect(heatChampion.maxHealth).toBe(CHAMPION_CONFIG.health);
+            expect(heatChampion.damage).toBe(CHAMPION_CONFIG.damage);
+            expect(heatChampion.xp).toBe(CHAMPION_CONFIG.xp);
+        });
+
+        it('should use heat type configuration', () => {
+            const config = CHAMPION_CONFIG.types.heat;
+            expect(heatChampion.color).toBe(config.color);
+            expect(heatChampion.glowColor).toBe(config.glowColor);
+            expect(heatChampion.eyeColor).toBe(config.eyeColor);
+        });
+
+        it('should use cold type configuration', () => {
+            const config = CHAMPION_CONFIG.types.cold;
+            expect(coldChampion.color).toBe(config.color);
+            expect(coldChampion.glowColor).toBe(config.glowColor);
+            expect(coldChampion.eyeColor).toBe(config.eyeColor);
+        });
+
+        it('should use force type configuration', () => {
+            const config = CHAMPION_CONFIG.types.force;
+            expect(forceChampion.color).toBe(config.color);
+            expect(forceChampion.glowColor).toBe(config.glowColor);
+            expect(forceChampion.eyeColor).toBe(config.eyeColor);
+        });
+
+        it('should store crystal type', () => {
+            expect(heatChampion.crystalType).toBe('heat');
+            expect(coldChampion.crystalType).toBe('cold');
+            expect(forceChampion.crystalType).toBe('force');
+        });
+
+        it('should initialize with zero slow', () => {
+            expect(heatChampion.slowAmount).toBe(0);
+            expect(heatChampion.slowTime).toBe(0);
+        });
+
+        it('should initialize ability cooldown at zero', () => {
+            expect(heatChampion.abilityCooldown).toBe(0);
+        });
+    });
+
+    describe('setTarget', () => {
+        it('should set target position', () => {
+            heatChampion.setTarget(500, 600);
+            expect(heatChampion.targetX).toBe(500);
+            expect(heatChampion.targetY).toBe(600);
+        });
+    });
+
+    describe('applySlow', () => {
+        it('should apply slow effect', () => {
+            heatChampion.applySlow(0.5, 2.0);
+            expect(heatChampion.slowAmount).toBe(0.5);
+            expect(heatChampion.slowTime).toBe(2.0);
+        });
+
+        it('should keep higher slow amount', () => {
+            heatChampion.applySlow(0.3, 1.0);
+            heatChampion.applySlow(0.5, 1.0);
+            expect(heatChampion.slowAmount).toBe(0.5);
+        });
+    });
+
+    describe('applyKnockback', () => {
+        it('should add knockback force', () => {
+            heatChampion.applyKnockback(1, 0, 100);
+            expect(heatChampion.knockbackX).toBe(100);
+            expect(heatChampion.knockbackY).toBe(0);
+        });
+
+        it('should accumulate knockback', () => {
+            heatChampion.applyKnockback(1, 0, 50);
+            heatChampion.applyKnockback(0, 1, 50);
+            expect(heatChampion.knockbackX).toBe(50);
+            expect(heatChampion.knockbackY).toBe(50);
+        });
+    });
+
+    describe('takeDamage', () => {
+        it('should reduce health', () => {
+            heatChampion.takeDamage(50);
+            expect(heatChampion.health).toBe(CHAMPION_CONFIG.health - 50);
+        });
+
+        it('should set hurt time for visual effect', () => {
+            heatChampion.takeDamage(10);
+            expect(heatChampion.hurtTime).toBe(0.15);
+        });
+
+        it('should return true when champion dies', () => {
+            expect(heatChampion.takeDamage(CHAMPION_CONFIG.health)).toBe(true);
+            expect(heatChampion.takeDamage(CHAMPION_CONFIG.health + 100)).toBe(true);
+        });
+
+        it('should return false when champion survives', () => {
+            expect(heatChampion.takeDamage(10)).toBe(false);
+            expect(heatChampion.takeDamage(100)).toBe(false);
+        });
+    });
+
+    describe('update', () => {
+        it('should move toward target', () => {
+            heatChampion.setTarget(200, 200);
+            const initialX = heatChampion.x;
+            
+            heatChampion.update(0.1);
+            
+            expect(heatChampion.x).toBeGreaterThan(initialX);
+        });
+
+        it('should apply slow effect to speed', () => {
+            heatChampion.applySlow(0.5, 1.0);
+            heatChampion.update(0.1);
+            
+            expect(heatChampion.speed).toBe(heatChampion.baseSpeed * 0.5);
+        });
+
+        it('should decrease hurt time', () => {
+            heatChampion.hurtTime = 0.15;
+            heatChampion.update(0.05);
+            expect(heatChampion.hurtTime).toBeCloseTo(0.1);
+        });
+
+        it('should update visual effects', () => {
+            const initialPulse = heatChampion.pulsePhase;
+            const initialCrown = heatChampion.crownRotation;
+            
+            heatChampion.update(0.1);
+            
+            expect(heatChampion.pulsePhase).toBeGreaterThan(initialPulse);
+            expect(heatChampion.crownRotation).toBeGreaterThan(initialCrown);
+        });
+
+        it('should decrease ability cooldown', () => {
+            heatChampion.abilityCooldown = 1.0;
+            heatChampion.update(0.3);
+            expect(heatChampion.abilityCooldown).toBeCloseTo(0.7);
+        });
+    });
+
+    describe('checkAbility - Heat Champion', () => {
+        it('should return flameBurst ability when cooldown is ready', () => {
+            heatChampion.setTarget(200, 200);
+            const ability = heatChampion.update(0.1);
+            
+            expect(ability).not.toBeNull();
+            expect(ability.type).toBe('flameBurst');
+            expect(ability.damage).toBe(CHAMPION_CONFIG.types.heat.abilityDamage);
+            expect(ability.count).toBe(CHAMPION_CONFIG.types.heat.projectileCount);
+        });
+
+        it('should set cooldown after using ability', () => {
+            heatChampion.update(0.1);
+            expect(heatChampion.abilityCooldown).toBe(CHAMPION_CONFIG.types.heat.abilityCooldown);
+        });
+
+        it('should return null when on cooldown', () => {
+            heatChampion.update(0.1); // Use ability
+            const ability = heatChampion.update(0.1); // Still on cooldown
+            expect(ability).toBeNull();
+        });
+    });
+
+    describe('checkAbility - Cold Champion', () => {
+        it('should return frostTrail ability when enough distance moved', () => {
+            coldChampion.setTarget(200, 200);
+            coldChampion.distanceMoved = 35; // More than threshold of 30
+            
+            const ability = coldChampion.update(0.1);
+            
+            expect(ability).not.toBeNull();
+            expect(ability.type).toBe('frostTrail');
+            expect(ability.radius).toBe(CHAMPION_CONFIG.types.cold.trailRadius);
+            expect(ability.slowAmount).toBe(CHAMPION_CONFIG.types.cold.slowAmount);
+        });
+
+        it('should reset distance moved after creating trail', () => {
+            coldChampion.distanceMoved = 35;
+            coldChampion.update(0.1);
+            expect(coldChampion.distanceMoved).toBe(0);
+        });
+
+        it('should return null when not enough distance moved', () => {
+            coldChampion.distanceMoved = 10;
+            const ability = coldChampion.update(0.01);
+            expect(ability).toBeNull();
+        });
+    });
+
+    describe('checkAbility - Force Champion', () => {
+        it('should return forceBeam ability when cooldown is ready', () => {
+            forceChampion.setTarget(200, 200);
+            const ability = forceChampion.update(0.1);
+            
+            expect(ability).not.toBeNull();
+            expect(ability.type).toBe('forceBeam');
+            expect(ability.damage).toBe(CHAMPION_CONFIG.types.force.abilityDamage);
+            expect(ability.piercing).toBe(CHAMPION_CONFIG.types.force.beamPiercing);
+            expect(ability.knockback).toBe(CHAMPION_CONFIG.types.force.knockback);
+        });
+
+        it('should set cooldown after using ability', () => {
+            forceChampion.update(0.1);
+            expect(forceChampion.abilityCooldown).toBe(CHAMPION_CONFIG.types.force.abilityCooldown);
+        });
+    });
+});
+
+describe('CHAMPION_CONFIG', () => {
+    it('should have base stats defined', () => {
+        expect(CHAMPION_CONFIG.radius).toBe(50);
+        expect(CHAMPION_CONFIG.speed).toBe(90);
+        expect(CHAMPION_CONFIG.health).toBe(350);
+        expect(CHAMPION_CONFIG.damage).toBe(30);
+        expect(CHAMPION_CONFIG.xp).toBe(200);
+    });
+
+    it('should have heat type configuration', () => {
+        const heat = CHAMPION_CONFIG.types.heat;
+        expect(heat.color).toBeDefined();
+        expect(heat.glowColor).toBeDefined();
+        expect(heat.abilityName).toBe('Flame Burst');
+        expect(heat.abilityCooldown).toBeGreaterThan(0);
+        expect(heat.projectileCount).toBeGreaterThan(0);
+    });
+
+    it('should have cold type configuration', () => {
+        const cold = CHAMPION_CONFIG.types.cold;
+        expect(cold.color).toBeDefined();
+        expect(cold.glowColor).toBeDefined();
+        expect(cold.abilityName).toBe('Frost Trail');
+        expect(cold.trailRadius).toBeGreaterThan(0);
+        expect(cold.slowAmount).toBeGreaterThan(0);
+    });
+
+    it('should have force type configuration', () => {
+        const force = CHAMPION_CONFIG.types.force;
+        expect(force.color).toBeDefined();
+        expect(force.glowColor).toBeDefined();
+        expect(force.abilityName).toBe('Force Beam');
+        expect(force.beamPiercing).toBe(true);
+        expect(force.knockback).toBeGreaterThan(0);
+    });
+});
+
+describe('CHAMPION_FUSION_THRESHOLD', () => {
+    it('should be defined and equal to 6', () => {
+        expect(CHAMPION_FUSION_THRESHOLD).toBe(6);
     });
 });
 

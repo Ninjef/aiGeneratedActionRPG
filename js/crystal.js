@@ -27,7 +27,7 @@ export class Crystal {
         this.type = type;
         this.radius = 15;
         this.collectRadius = 30;
-        this.aggroRadius = 200; // Attracts enemies
+        this.aggroRadius = 350; // Attracts enemies (increased for faster champion fusion)
         
         const config = CRYSTAL_TYPES[type];
         this.color = config.color;

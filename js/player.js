@@ -1,5 +1,7 @@
 // Player class
 
+import { StatusEffectManager } from './statusEffects.js';
+
 export class Player {
     constructor(x, y) {
         this.x = x;
@@ -33,6 +35,9 @@ export class Player {
         // Visual effects
         this.flashTime = 0;
         this.rotationAngle = 0;
+        
+        // Status effects (supercharge, etc.)
+        this.statusEffects = new StatusEffectManager();
     }
 
     get totalCrystals() {
@@ -68,6 +73,9 @@ export class Player {
         
         // Update rotation for visual effect
         this.rotationAngle += dt * 1.5;
+        
+        // Update status effects
+        this.statusEffects.update(dt);
     }
 
     takeDamage(amount) {

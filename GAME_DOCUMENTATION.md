@@ -36,7 +36,7 @@ npm run test:watch # Watch mode for development
 ├── js/
 │   ├── game.js         # Main game loop, initialization, orchestration
 │   ├── player.js       # Player class (movement, health, crystal inventory)
-│   ├── enemy.js        # Enemy class + EnemySpawner
+│   ├── enemy.js        # Enemy class + EnemySpawner + Champion class
 │   ├── crystal.js      # Crystal class + CrystalSpawner
 │   ├── powers.js       # Power definitions + PowerManager
 │   ├── projectile.js   # Projectile, AreaEffect, RingEffect, OrbitalShield classes
@@ -138,6 +138,7 @@ All game entities share common patterns:
 |--------|---------------|--------|--------|--------|
 | Player | `x, y` | 20 | Movement, invincibility | Circle + health bar |
 | Enemy | `x, y` | 12-35 | Move toward target, slow/knockback | Circle + health bar |
+| Champion | `x, y` | 50 | Move toward player, use crystal ability | Crown spikes + 3 eyes + health bar |
 | Crystal | `x, y` | 15 | Animation | Diamond shape + glow |
 | Projectile | `x, y` | 6-12 | Movement, lifetime | Circle + trail |
 
@@ -156,6 +157,48 @@ small:  { radius: 12, speed: 180, health: 20,  damage: 5  }
 medium: { radius: 22, speed: 120, health: 50,  damage: 10 }
 large:  { radius: 35, speed: 70,  health: 120, damage: 20 }
 ```
+
+### Champion Enemy Fusion
+
+When enough enemies orbit a single crystal, they merge into a powerful **Champion** enemy:
+
+```javascript
+// Fusion is triggered when this many enemies orbit a crystal
+CHAMPION_FUSION_THRESHOLD = 10  // Configurable in enemy.js
+
+// When fusion occurs:
+1. All orbiting enemies are removed
+2. The crystal is consumed (removed)
+3. A Champion spawns at the crystal's position
+4. Champion inherits the crystal's type (heat/cold/force)
+```
+
+#### Champion Stats
+
+```javascript
+// Champion base stats (defined in CHAMPION_CONFIG):
+radius: 50      // Larger than any regular enemy
+speed: 90       // Slower but menacing
+health: 350     // Very durable
+damage: 30      // High contact damage
+xp: 200         // Worth 5x a large enemy
+```
+
+#### Champion Abilities by Crystal Type
+
+| Crystal Type | Ability | Cooldown | Effect |
+|--------------|---------|----------|--------|
+| Heat | Flame Burst | 1.5s | Shoots 3 fireballs in a spread toward player |
+| Cold | Frost Trail | While moving | Leaves frost zones that slow and damage player |
+| Force | Force Beam | 2.0s | Fires piercing beam with knockback toward player |
+
+#### Champion Visual Design
+
+- **Large glowing aura** matching crystal color
+- **8 rotating crown spikes** around the body
+- **Pulsing crystal core** in the center (diamond shape)
+- **3 menacing eyes** (center larger than sides)
+- **Always-visible health bar** (thicker than regular enemies)
 
 ### Crystal System
 
@@ -264,6 +307,10 @@ difficulty >= 2: 40% chance medium enemies
 | Crystal aggro radius | 200 | `crystal.js` |
 | Max enemies | 100 | `enemy.js` |
 | Max crystals | 15 | `crystal.js` |
+| Champion fusion threshold | 10 | `enemy.js` |
+| Champion radius | 50 | `enemy.js` |
+| Champion health | 350 | `enemy.js` |
+| Champion damage | 30 | `enemy.js` |
 
 Note: Enemy/crystal spawn and despawn distances are now **dynamically calculated** based on camera zoom and screen size.
 
@@ -283,15 +330,17 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 
 1. Grid background (scrolls with camera)
 2. Ambient particles
-3. Area effects (magma pools, gravity wells, frost nova)
+3. Area effects (magma pools, gravity wells, frost nova, frost trails)
 4. Ring effects (inferno ring)
 5. Crystals
 6. Enemies
-7. Orbital shields
-8. Player
-9. Projectiles
-10. Vignette overlay
-11. Game timer (top center)
+7. Champions
+8. Orbital shields
+9. Player
+10. Player projectiles
+11. Enemy projectiles (from Champions)
+12. Vignette overlay
+13. Game timer (top center)
 
 ## Adding New Content
 

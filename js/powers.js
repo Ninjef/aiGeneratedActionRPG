@@ -145,6 +145,18 @@ export class PowerManager {
         this.enemies = enemies;
     }
 
+    /**
+     * Get the effective level of a power, including status effect bonuses
+     * @param {Object} power - The power object with id and level
+     * @returns {number} Effective level (base + bonus)
+     */
+    getEffectiveLevel(power) {
+        const def = POWERS[power.id];
+        const category = def.category;
+        const bonusLevels = this.player.statusEffects.getBonusLevels(category);
+        return power.level + bonusLevels;
+    }
+
     update(dt) {
         // Update cooldowns
         for (const powerId in this.cooldowns) {
@@ -167,17 +179,21 @@ export class PowerManager {
     }
 
     updatePassivePower(power) {
+        const effectiveLevel = this.getEffectiveLevel(power);
+        
         switch (power.id) {
             case 'frozenArmor':
-                this.player.damageReduction = Math.min(0.7, 0.1 * power.level);
+                this.player.damageReduction = Math.min(0.7, 0.1 * effectiveLevel);
                 break;
             case 'orbitalShields':
-                if (!this.orbitalShield || this.orbitalShield.count !== 2 + power.level) {
+                // Recalculate if shield count should change (including supercharge bonus)
+                const targetCount = 2 + effectiveLevel;
+                if (!this.orbitalShield || this.orbitalShield.count !== targetCount) {
                     this.orbitalShield = new OrbitalShield(
                         this.player,
-                        2 + power.level,
+                        targetCount,
                         130,
-                        15 * Math.pow(1.2, power.level - 1)
+                        15 * Math.pow(1.2, effectiveLevel - 1)
                     );
                 }
                 break;
@@ -186,7 +202,9 @@ export class PowerManager {
 
     updateActivePower(power, dt) {
         const def = POWERS[power.id];
-        const cooldown = def.baseCooldown * Math.pow(def.levelScale.cooldown || 1, power.level - 1);
+        const effectiveLevel = this.getEffectiveLevel(power);
+        // Use effective level for cooldown calculation (supercharged = faster casting)
+        const cooldown = def.baseCooldown * Math.pow(def.levelScale.cooldown || 1, effectiveLevel - 1);
 
         if (!this.cooldowns[power.id] || this.cooldowns[power.id] <= 0) {
             this.castPower(power);
@@ -196,7 +214,8 @@ export class PowerManager {
 
     castPower(power) {
         const def = POWERS[power.id];
-        const level = power.level;
+        // Use effective level for damage/effect calculations
+        const level = this.getEffectiveLevel(power);
 
         switch (power.id) {
             case 'fireballBarrage':
@@ -239,7 +258,7 @@ export class PowerManager {
                     radius: 10,
                     color: '#ff6b35',
                     trailLength: 8,
-                    lifetime: 2
+                    lifetime: 3.5
                 }
             ));
         }
@@ -308,7 +327,7 @@ export class PowerManager {
                     radius: 8,
                     color: '#4fc3f7',
                     trailLength: 6,
-                    lifetime: 2,
+                    lifetime: 3.5,
                     piercing: true,
                     slowAmount: 0.3,
                     slowDuration: 1.0
@@ -374,7 +393,7 @@ export class PowerManager {
                 radius: 12,
                 color: '#ba68c8',
                 trailLength: 10,
-                lifetime: 1.5,
+                lifetime: 3,
                 knockback: knockback
             }
         ));

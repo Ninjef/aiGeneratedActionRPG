@@ -2,13 +2,14 @@
 
 import { Player } from './player.js';
 import { Camera } from './camera.js';
-import { Enemy, EnemySpawner } from './enemy.js';
+import { Enemy, EnemySpawner, Champion, CHAMPION_FUSION_THRESHOLD } from './enemy.js';
 import { Crystal, CrystalSpawner } from './crystal.js';
 import { Projectile, AreaEffect, RingEffect } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
 import { UI } from './ui.js';
 import { circleCollision } from './collision.js';
-import { distance } from './utils.js';
+import { distance, angle, randomRange } from './utils.js';
+import { createSuperchargeEffect } from './statusEffects.js';
 
 class Game {
     constructor() {
@@ -62,10 +63,14 @@ class Game {
         
         // Entity arrays
         this.enemies = [];
+        this.champions = [];
         this.crystals = [];
         this.projectiles = [];
         this.areaEffects = [];
         this.ringEffects = [];
+        
+        // Enemy projectiles (from champions attacking the player)
+        this.enemyProjectiles = [];
         
         // Spawners
         this.enemySpawner = new EnemySpawner();
@@ -191,6 +196,15 @@ class Game {
             enemy.update(dt);
         }
         
+        // Check for champion fusion (enemies orbiting crystals)
+        this.checkChampionFusion();
+        
+        // Update champions
+        this.updateChampions(dt);
+        
+        // Update enemy projectiles (from champions)
+        this.updateEnemyProjectiles(dt);
+        
         // Base attack
         this.updateBaseAttack(dt);
         
@@ -219,6 +233,21 @@ class Game {
                     }
                 }
             }
+            
+            // Check collisions with champions
+            for (let j = this.champions.length - 1; j >= 0; j--) {
+                const champion = this.champions[j];
+                if (proj.checkCollision(champion)) {
+                    if (champion.takeDamage(proj.damage)) {
+                        this.champions.splice(j, 1);
+                        this.enemiesDefeated += 5; // Champions count as 5 enemies
+                    }
+                    if (!proj.piercing) {
+                        this.projectiles.splice(i, 1);
+                        break;
+                    }
+                }
+            }
         }
         
         // Update area effects
@@ -240,10 +269,23 @@ class Game {
                         }
                     }
                 }
+                // Also affect champions
+                for (let j = this.champions.length - 1; j >= 0; j--) {
+                    const champion = this.champions[j];
+                    if (effect.affectEnemy(champion)) {
+                        if (champion.takeDamage(effect.damage)) {
+                            this.champions.splice(j, 1);
+                            this.enemiesDefeated += 5;
+                        }
+                    }
+                }
             } else {
                 // Still apply non-damage effects (slow, pull)
                 for (const enemy of this.enemies) {
                     effect.affectEnemy(enemy);
+                }
+                for (const champion of this.champions) {
+                    effect.affectEnemy(champion);
                 }
             }
         }
@@ -256,7 +298,7 @@ class Game {
                 continue;
             }
             
-            // Check collisions
+            // Check collisions with enemies
             for (let j = this.enemies.length - 1; j >= 0; j--) {
                 const enemy = this.enemies[j];
                 if (ring.checkCollision(enemy)) {
@@ -266,9 +308,20 @@ class Game {
                     }
                 }
             }
+            
+            // Check collisions with champions
+            for (let j = this.champions.length - 1; j >= 0; j--) {
+                const champion = this.champions[j];
+                if (ring.checkCollision(champion)) {
+                    if (champion.takeDamage(ring.damage)) {
+                        this.champions.splice(j, 1);
+                        this.enemiesDefeated += 5;
+                    }
+                }
+            }
         }
         
-        // Check orbital shield collisions
+        // Check orbital shield collisions with enemies
         const shieldHits = this.powerManager.checkOrbitalShieldCollisions(this.enemies);
         for (const hit of shieldHits) {
             if (hit.enemy.takeDamage(hit.damage)) {
@@ -276,6 +329,18 @@ class Game {
                 if (idx !== -1) {
                     this.enemies.splice(idx, 1);
                     this.enemiesDefeated++;
+                }
+            }
+        }
+        
+        // Check orbital shield collisions with champions
+        const championShieldHits = this.powerManager.checkOrbitalShieldCollisions(this.champions);
+        for (const hit of championShieldHits) {
+            if (hit.enemy.takeDamage(hit.damage)) {
+                const idx = this.champions.indexOf(hit.enemy);
+                if (idx !== -1) {
+                    this.champions.splice(idx, 1);
+                    this.enemiesDefeated += 5;
                 }
             }
         }
@@ -296,6 +361,21 @@ class Game {
             }
         }
         
+        // Check player-champion collisions
+        for (const champion of this.champions) {
+            if (circleCollision(
+                this.player.x, this.player.y, this.player.radius,
+                champion.x, champion.y, champion.radius
+            )) {
+                if (this.player.takeDamage(champion.damage)) {
+                    const frozenArmor = this.player.powers.find(p => p.id === 'frozenArmor');
+                    if (frozenArmor) {
+                        champion.applySlow(0.3 + frozenArmor.level * 0.1, 1.0);
+                    }
+                }
+            }
+        }
+        
         // Check crystal collection
         for (let i = this.crystals.length - 1; i >= 0; i--) {
             const crystal = this.crystals[i];
@@ -304,6 +384,12 @@ class Game {
                 crystal.x, crystal.y, crystal.collectRadius
             )) {
                 this.player.collectCrystal(crystal.type);
+                
+                // Apply supercharge effect - temporarily boost powers of this crystal type
+                this.player.statusEffects.addEffect(
+                    createSuperchargeEffect(crystal.type)
+                );
+                
                 this.crystals.splice(i, 1);
                 
                 // Check for level up
@@ -332,6 +418,14 @@ class Game {
             const enemy = this.enemies[i];
             if (distance(this.player.x, this.player.y, enemy.x, enemy.y) > despawnDistance) {
                 this.enemies.splice(i, 1);
+            }
+        }
+        
+        // Despawn far champions (with larger threshold since they're important)
+        for (let i = this.champions.length - 1; i >= 0; i--) {
+            const champion = this.champions[i];
+            if (distance(this.player.x, this.player.y, champion.x, champion.y) > despawnDistance * 1.5) {
+                this.champions.splice(i, 1);
             }
         }
     }
@@ -405,7 +499,7 @@ class Game {
                     radius: 6,
                     color: '#ffffff',
                     trailLength: 4,
-                    lifetime: 2
+                    lifetime: 3.5
                 }
             ));
         }
@@ -429,6 +523,158 @@ class Game {
     gameOver() {
         this.running = false;
         this.ui.showGameOver(this.gameTime, this.enemiesDefeated);
+    }
+
+    checkChampionFusion() {
+        // Check each crystal for enough orbiting enemies
+        for (let i = this.crystals.length - 1; i >= 0; i--) {
+            const crystal = this.crystals[i];
+            
+            // Find all enemies orbiting this crystal
+            const orbiters = this.enemies.filter(e => e.orbitTarget === crystal);
+            
+            if (orbiters.length >= CHAMPION_FUSION_THRESHOLD) {
+                // Fusion triggered! Remove orbiting enemies and crystal
+                for (const orbiter of orbiters) {
+                    const idx = this.enemies.indexOf(orbiter);
+                    if (idx !== -1) {
+                        this.enemies.splice(idx, 1);
+                    }
+                }
+                
+                // Remove the crystal
+                this.crystals.splice(i, 1);
+                
+                // Spawn a champion at the crystal's position
+                const champion = new Champion(crystal.x, crystal.y, crystal.type);
+                champion.setTarget(this.player.x, this.player.y);
+                this.champions.push(champion);
+            }
+        }
+    }
+
+    updateChampions(dt) {
+        for (let i = this.champions.length - 1; i >= 0; i--) {
+            const champion = this.champions[i];
+            
+            // Set target to player
+            champion.setTarget(this.player.x, this.player.y);
+            
+            // Update champion and check for ability usage
+            const abilityResult = champion.update(dt);
+            
+            if (abilityResult) {
+                this.handleChampionAbility(champion, abilityResult);
+            }
+        }
+    }
+
+    handleChampionAbility(champion, ability) {
+        switch (ability.type) {
+            case 'flameBurst':
+                // Shoot fireballs toward the player
+                const baseAngle = angle(ability.x, ability.y, ability.targetX, ability.targetY);
+                const spreadAngle = Math.PI / 6; // 30 degree spread
+                
+                for (let i = 0; i < ability.count; i++) {
+                    const offsetAngle = baseAngle + (i - (ability.count - 1) / 2) * spreadAngle;
+                    this.enemyProjectiles.push(new Projectile(
+                        ability.x,
+                        ability.y,
+                        offsetAngle,
+                        ability.speed,
+                        ability.damage,
+                        {
+                            radius: 12,
+                            color: '#ff6b35',
+                            trailLength: 8,
+                            lifetime: 3,
+                            isEnemyProjectile: true
+                        }
+                    ));
+                }
+                break;
+                
+            case 'frostTrail':
+                // Create a frost zone at the champion's position
+                this.areaEffects.push(new AreaEffect(
+                    ability.x,
+                    ability.y,
+                    ability.radius,
+                    0, // No damage to enemies
+                    ability.duration,
+                    {
+                        color: '#4fc3f7',
+                        damageInterval: 0.5,
+                        slowAmount: ability.slowAmount,
+                        slowDuration: ability.slowDuration,
+                        type: 'frostTrail',
+                        damagePlayer: true,
+                        playerDamage: ability.damage
+                    }
+                ));
+                break;
+                
+            case 'forceBeam':
+                // Shoot a piercing beam toward the player
+                const beamAngle = angle(ability.x, ability.y, ability.targetX, ability.targetY);
+                this.enemyProjectiles.push(new Projectile(
+                    ability.x,
+                    ability.y,
+                    beamAngle,
+                    ability.speed,
+                    ability.damage,
+                    {
+                        radius: 10,
+                        color: '#ba68c8',
+                        trailLength: 15,
+                        lifetime: 2,
+                        piercing: ability.piercing,
+                        knockback: ability.knockback,
+                        isEnemyProjectile: true
+                    }
+                ));
+                break;
+        }
+    }
+
+    updateEnemyProjectiles(dt) {
+        for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
+            const proj = this.enemyProjectiles[i];
+            
+            if (!proj.update(dt)) {
+                this.enemyProjectiles.splice(i, 1);
+                continue;
+            }
+            
+            // Check collision with player
+            if (circleCollision(
+                proj.x, proj.y, proj.radius,
+                this.player.x, this.player.y, this.player.radius
+            )) {
+                this.player.takeDamage(proj.damage);
+                
+                // Apply knockback to player if applicable
+                if (proj.knockback > 0) {
+                    // Player doesn't have knockback, but we could add it
+                }
+                
+                if (!proj.piercing) {
+                    this.enemyProjectiles.splice(i, 1);
+                }
+            }
+        }
+        
+        // Check frost trail effects damaging the player
+        for (const effect of this.areaEffects) {
+            if (effect.damagePlayer && effect.canDamage()) {
+                const dist = distance(effect.x, effect.y, this.player.x, this.player.y);
+                if (dist < effect.radius + this.player.radius) {
+                    this.player.takeDamage(effect.playerDamage || effect.damage);
+                    // Apply slow to player (optional - player doesn't have slow system)
+                }
+            }
+        }
     }
 
     render() {
@@ -474,6 +720,13 @@ class Game {
             }
         }
         
+        // Draw champions (larger, render after regular enemies)
+        for (const champion of this.champions) {
+            if (this.camera.isVisible(champion.x, champion.y, champion.radius * 2)) {
+                champion.render(ctx, this.camera);
+            }
+        }
+        
         // Draw orbital shields (behind player)
         this.powerManager.renderOrbitalShields(ctx, this.camera);
         
@@ -482,6 +735,13 @@ class Game {
         
         // Draw projectiles
         for (const proj of this.projectiles) {
+            if (this.camera.isVisible(proj.x, proj.y, 20)) {
+                proj.render(ctx, this.camera);
+            }
+        }
+        
+        // Draw enemy projectiles (from champions)
+        for (const proj of this.enemyProjectiles) {
             if (this.camera.isVisible(proj.x, proj.y, 20)) {
                 proj.render(ctx, this.camera);
             }

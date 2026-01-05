@@ -31,8 +31,8 @@ npm run test:coverage
 | `tests/collision.test.js` | 19 | Collision detection algorithms |
 | `tests/camera.test.js` | 24 | Camera coordinate transforms and zoom |
 | `tests/player.test.js` | 39 | Player state, movement, damage, powers |
-| `tests/enemy.test.js` | 38 | Enemy behavior, spawner, difficulty |
-| **Total** | **148** | |
+| `tests/enemy.test.js` | 74 | Enemy behavior, spawner, difficulty, Champion |
+| **Total** | **184** | |
 
 ## Test Structure
 
@@ -219,7 +219,7 @@ describe('takeDamage', () => {
 
 ## enemy.test.js
 
-Tests for `js/enemy.js` - enemy behavior, types, and spawning system.
+Tests for `js/enemy.js` - enemy behavior, types, spawning system, and Champion enemies.
 
 ### Mock Camera for Spawner Tests
 
@@ -269,6 +269,35 @@ function createMockCamera(width = 800, height = 600, zoom = 0.25) {
 | `getSpawnDistances(camera)` | 2 | Dynamic distance calculation, zoom scaling |
 | `update(...)` | 6 | Game time, difficulty, spawning, max enemies |
 
+#### Champion Class
+
+| Method | Tests | What's Verified |
+|--------|-------|-----------------|
+| `constructor` | 10 | Position, isChampion flag, stats, crystal type config |
+| `setTarget(x, y)` | 1 | Target position setting |
+| `applySlow(amount, duration)` | 2 | Slow application, max value tracking |
+| `applyKnockback(dx, dy, force)` | 2 | Knockback force, accumulation |
+| `takeDamage(amount)` | 4 | Health reduction, death detection, hurt time |
+| `update(dt)` | 5 | Movement, slow effect, visual effects, cooldown |
+| `checkAbility - Heat` | 3 | Flame Burst ability, cooldown, null when on cooldown |
+| `checkAbility - Cold` | 3 | Frost Trail based on distance moved, reset distance |
+| `checkAbility - Force` | 2 | Force Beam ability, cooldown after use |
+
+#### CHAMPION_CONFIG
+
+| Test | What's Verified |
+|------|-----------------|
+| Base stats | radius, speed, health, damage, xp values |
+| Heat type | color, glowColor, ability name, cooldown, projectile count |
+| Cold type | color, glowColor, trail radius, slow amount |
+| Force type | color, glowColor, beam piercing, knockback |
+
+#### CHAMPION_FUSION_THRESHOLD
+
+| Test | What's Verified |
+|------|-----------------|
+| Value | Equals 10 (configurable threshold) |
+
 ### Example Test
 
 ```javascript
@@ -282,6 +311,22 @@ describe('getSpawnDistances', () => {
         
         expect(distOut.min).toBeGreaterThan(distIn.min);
         expect(distOut.max).toBeGreaterThan(distIn.max);
+    });
+});
+```
+
+### Example Champion Test
+
+```javascript
+describe('checkAbility - Heat Champion', () => {
+    it('should return flameBurst ability when cooldown is ready', () => {
+        heatChampion.setTarget(200, 200);
+        const ability = heatChampion.update(0.1);
+        
+        expect(ability).not.toBeNull();
+        expect(ability.type).toBe('flameBurst');
+        expect(ability.damage).toBe(CHAMPION_CONFIG.types.heat.abilityDamage);
+        expect(ability.count).toBe(CHAMPION_CONFIG.types.heat.projectileCount);
     });
 });
 ```
