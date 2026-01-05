@@ -3,7 +3,7 @@
 import { randomRange, randomPositionInRing, distance, normalize, angle } from './utils.js';
 
 // Configurable fusion threshold - how many enemies need to orbit a crystal to create a Champion
-export const CHAMPION_FUSION_THRESHOLD = 6;
+export const CHAMPION_FUSION_THRESHOLD = 5;
 
 // Champion configuration based on crystal type
 export const CHAMPION_CONFIG = {

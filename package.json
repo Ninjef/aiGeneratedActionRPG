@@ -4,6 +4,7 @@
   "description": "A survival game where you collect crystals and fight hordes of enemies",
   "type": "module",
   "scripts": {
+    "start": "python3 -m http.server 8080",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

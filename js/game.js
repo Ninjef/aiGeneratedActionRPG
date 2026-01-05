@@ -84,7 +84,7 @@ class Game {
             this.areaEffects,
             this.ringEffects
         );
-        this.powerManager.setEnemies(this.enemies);
+        this.powerManager.setEnemies(this.enemies, this.champions);
         
         // Base attack
         this.baseAttackCooldown = 0.8;
@@ -486,17 +486,20 @@ class Game {
     updateBaseAttack(dt) {
         this.baseAttackTimer += dt;
         
-        if (this.baseAttackTimer >= this.baseAttackCooldown && this.enemies.length > 0) {
+        // Include both enemies and champions as targets
+        const allTargets = [...this.enemies, ...this.champions];
+        
+        if (this.baseAttackTimer >= this.baseAttackCooldown && allTargets.length > 0) {
             this.baseAttackTimer = 0;
             
-            // Find nearest enemy
-            let nearest = this.enemies[0];
+            // Find nearest enemy or champion
+            let nearest = allTargets[0];
             let nearestDist = distance(this.player.x, this.player.y, nearest.x, nearest.y);
             
-            for (let i = 1; i < this.enemies.length; i++) {
-                const dist = distance(this.player.x, this.player.y, this.enemies[i].x, this.enemies[i].y);
+            for (let i = 1; i < allTargets.length; i++) {
+                const dist = distance(this.player.x, this.player.y, allTargets[i].x, allTargets[i].y);
                 if (dist < nearestDist) {
-                    nearest = this.enemies[i];
+                    nearest = allTargets[i];
                     nearestDist = dist;
                 }
             }

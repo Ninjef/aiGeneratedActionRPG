@@ -140,10 +140,17 @@ export class PowerManager {
         this.cooldowns = {};
         this.orbitalShield = null;
         this.enemies = []; // Reference to enemies array for targeting
+        this.champions = []; // Reference to champions array for targeting
     }
 
-    setEnemies(enemies) {
+    setEnemies(enemies, champions = []) {
         this.enemies = enemies;
+        this.champions = champions;
+    }
+    
+    // Get all targetable enemies (regular enemies + champions)
+    getAllTargets() {
+        return [...this.enemies, ...this.champions];
     }
 
     /**
@@ -313,8 +320,9 @@ export class PowerManager {
         const damage = 12 * Math.pow(def.levelScale.damage, level - 1);
         const count = 1 + Math.floor(level * (def.levelScale.count || 0.5));
 
-        // Find nearest enemies
-        const targets = [...this.enemies]
+        // Find nearest enemies (including champions)
+        const allTargets = this.getAllTargets();
+        const targets = allTargets
             .map(e => ({ enemy: e, dist: Math.hypot(e.x - this.player.x, e.y - this.player.y) }))
             .sort((a, b) => a.dist - b.dist)
             .slice(0, count);
@@ -384,8 +392,9 @@ export class PowerManager {
         const damage = 18 * Math.pow(def.levelScale.damage, level - 1);
         const knockback = 150 * Math.pow(def.levelScale.knockback || 1, level - 1);
 
-        // Find nearest enemy
-        const nearest = findClosest(this.enemies, this.player.x, this.player.y);
+        // Find nearest enemy (including champions)
+        const allTargets = this.getAllTargets();
+        const nearest = findClosest(allTargets, this.player.x, this.player.y);
         let targetAngle;
         if (nearest) {
             targetAngle = angle(this.player.x, this.player.y, nearest.x, nearest.y);
