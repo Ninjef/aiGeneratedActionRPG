@@ -3,6 +3,7 @@
 import { Projectile, AreaEffect, RingEffect, OrbitalShield } from './projectile.js';
 import { randomRange, angle, normalize, randomChoice } from './utils.js';
 import { findClosest } from './collision.js';
+import { getCooldownReductionForCategory } from './passiveUpgrades.js';
 
 // Power definitions
 export const POWERS = {
@@ -183,7 +184,8 @@ export class PowerManager {
         
         switch (power.id) {
             case 'frozenArmor':
-                this.player.damageReduction = Math.min(0.7, 0.1 * effectiveLevel);
+                // Use setBaseDamageReduction so it combines with passive upgrades
+                this.player.setBaseDamageReduction(Math.min(0.5, 0.1 * effectiveLevel));
                 break;
             case 'orbitalShields':
                 // Recalculate if shield count should change (including supercharge bonus)
@@ -203,8 +205,16 @@ export class PowerManager {
     updateActivePower(power, dt) {
         const def = POWERS[power.id];
         const effectiveLevel = this.getEffectiveLevel(power);
-        // Use effective level for cooldown calculation (supercharged = faster casting)
-        const cooldown = def.baseCooldown * Math.pow(def.levelScale.cooldown || 1, effectiveLevel - 1);
+        
+        // Calculate base cooldown from level
+        let cooldown = def.baseCooldown * Math.pow(def.levelScale.cooldown || 1, effectiveLevel - 1);
+        
+        // Apply passive cooldown reduction from passive upgrades
+        const passiveCooldownReduction = getCooldownReductionForCategory(
+            this.player.passiveUpgrades, 
+            def.category
+        );
+        cooldown *= (1 - passiveCooldownReduction);
 
         if (!this.cooldowns[power.id] || this.cooldowns[power.id] <= 0) {
             this.castPower(power);

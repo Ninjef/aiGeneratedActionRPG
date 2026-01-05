@@ -9,7 +9,7 @@ export const CHAMPION_FUSION_THRESHOLD = 6;
 export const CHAMPION_CONFIG = {
     // Base stats (shared across all types)
     radius: 50,
-    speed: 90,
+    speed: 140, // Faster than all regular enemies (small: 180, medium: 120, large: 70)
     health: 350,
     damage: 30,
     xp: 200,
@@ -34,9 +34,10 @@ export const CHAMPION_CONFIG = {
             abilityCooldown: 0.3, // Creates trail segments frequently
             abilityDamage: 5,
             trailRadius: 40,
-            trailDuration: 3.0,
+            trailDuration: 30.0, // 10x longer trail persistence
             slowAmount: 0.4,
-            slowDuration: 1.5
+            slowDuration: 1.5,
+            speedMultiplier: 1.5 // Cold champions move faster
         },
         force: {
             color: '#ba68c8',
@@ -115,6 +116,16 @@ export class Enemy {
         this.orbitAngle = Math.random() * Math.PI * 2; // Current angle around crystal
         this.orbitSpeed = 1.5 + Math.random() * 1.0; // Radians per second
         this.orbitRadius = 60 + Math.random() * 40; // Distance from crystal center
+        
+        // Wandering AI state (enemies wander randomly until player is close)
+        // Create two behavior types: aggressive (60% chance) and passive (40% chance)
+        const isAggressive = Math.random() < 0.6;
+        this.awarenessRadius = isAggressive ? 600 : 250; // Aggressive: far sight, Passive: short sight
+        this.isAggressive = isAggressive;
+        this.isAwareOfPlayer = false;
+        this.wanderAngle = Math.random() * Math.PI * 2;
+        this.wanderTimer = 0;
+        this.wanderChangeInterval = 2.0 + Math.random() * 2.0; // Change direction every 2-4 seconds
     }
 
     setTarget(x, y) {
@@ -146,7 +157,7 @@ export class Enemy {
         return this.health <= 0;
     }
 
-    update(dt) {
+    update(dt, playerX, playerY, playerAggroModifier = 1.0) {
         // Update slow
         if (this.slowTime > 0) {
             this.slowTime -= dt;
@@ -190,13 +201,43 @@ export class Enemy {
             this.targetX = this.orbitTarget.x;
             this.targetY = this.orbitTarget.y;
         } else {
-            // Normal movement toward target
-            const dx = this.targetX - this.x;
-            const dy = this.targetY - this.y;
-            const dir = normalize(dx, dy);
+            // Check distance to player to determine awareness
+            const distToPlayer = distance(this.x, this.y, playerX, playerY);
+            const effectiveAwarenessRadius = this.awarenessRadius * playerAggroModifier;
             
-            this.x += dir.x * this.speed * dt;
-            this.y += dir.y * this.speed * dt;
+            if (distToPlayer <= effectiveAwarenessRadius) {
+                // Player is close - chase them!
+                this.isAwareOfPlayer = true;
+                this.targetX = playerX;
+                this.targetY = playerY;
+                
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                const dir = normalize(dx, dy);
+                
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+            } else {
+                // Player is far - wander randomly
+                this.isAwareOfPlayer = false;
+                
+                // Update wander timer and change direction periodically
+                this.wanderTimer += dt;
+                if (this.wanderTimer >= this.wanderChangeInterval) {
+                    this.wanderTimer = 0;
+                    this.wanderAngle = Math.random() * Math.PI * 2;
+                    this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+                }
+                
+                // Move in wander direction at reduced speed
+                const wanderSpeed = this.speed * 0.5;
+                this.x += Math.cos(this.wanderAngle) * wanderSpeed * dt;
+                this.y += Math.sin(this.wanderAngle) * wanderSpeed * dt;
+                
+                // Update target for eye tracking (look in movement direction)
+                this.targetX = this.x + Math.cos(this.wanderAngle) * 100;
+                this.targetY = this.y + Math.sin(this.wanderAngle) * 100;
+            }
         }
         
         // Update hurt visual
@@ -212,13 +253,16 @@ export class Enemy {
         
         ctx.save();
         
-        // Outer glow based on enemy type
-        const glowSize = r * 1.4;
+        // Outer glow based on enemy type and aggression
+        // Aggressive enemies have brighter, larger glow
+        const glowMultiplier = this.isAggressive ? 1.6 : 1.2;
+        const glowSize = r * glowMultiplier;
         const glowGradient = ctx.createRadialGradient(
             screen.x, screen.y, r * 0.8,
             screen.x, screen.y, glowSize
         );
-        glowGradient.addColorStop(0, this.color + '60');
+        const glowAlpha = this.isAggressive ? '80' : '40'; // Aggressive enemies glow brighter
+        glowGradient.addColorStop(0, this.color + glowAlpha);
         glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = glowGradient;
         ctx.beginPath();
@@ -315,8 +359,8 @@ export class Enemy {
 export class EnemySpawner {
     constructor() {
         this.spawnTimer = 0;
-        this.spawnInterval = 2.0;
-        this.maxEnemies = 100;
+        this.spawnInterval = 1.5; // Faster spawning (was 2.0)
+        this.maxEnemies = 150; // More enemies (was 100)
         this.difficulty = 1;
         this.gameTime = 0;
     }
@@ -339,7 +383,7 @@ export class EnemySpawner {
         
         // Increase difficulty over time
         this.difficulty = 1 + Math.floor(this.gameTime / 30) * 0.5;
-        this.spawnInterval = Math.max(0.5, 2.0 - this.difficulty * 0.2);
+        this.spawnInterval = Math.max(0.3, 1.5 - this.difficulty * 0.15); // Faster ramp-up
         
         this.spawnTimer += dt;
         
@@ -358,8 +402,8 @@ export class EnemySpawner {
             // Get dynamic spawn distances based on camera zoom
             const spawnDist = this.getSpawnDistances(camera);
             
-            // Spawn 1-3 enemies based on difficulty
-            const spawnCount = Math.min(3, Math.ceil(this.difficulty));
+            // Spawn 2-5 enemies based on difficulty (increased from 1-3)
+            const spawnCount = Math.min(5, Math.ceil(this.difficulty) + 1);
             
             for (let i = 0; i < spawnCount; i++) {
                 const pos = randomPositionInRing(
@@ -407,6 +451,12 @@ export class Champion {
         this.glowColor = typeConfig.glowColor;
         this.eyeColor = typeConfig.eyeColor;
         this.abilityConfig = typeConfig;
+        
+        // Apply type-specific speed multiplier (e.g., cold champions are faster)
+        if (typeConfig.speedMultiplier) {
+            this.baseSpeed *= typeConfig.speedMultiplier;
+            this.speed = this.baseSpeed;
+        }
         
         // Target tracking
         this.targetX = x;

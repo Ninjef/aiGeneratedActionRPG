@@ -10,6 +10,7 @@ import { UI } from './ui.js';
 import { circleCollision } from './collision.js';
 import { distance, angle, randomRange } from './utils.js';
 import { createSuperchargeEffect } from './statusEffects.js';
+import { generatePassiveUpgradeOptions } from './passiveUpgrades.js';
 
 class Game {
     constructor() {
@@ -171,7 +172,10 @@ class Game {
             crystal.update(dt);
         }
         
-        // Update enemies - target player or orbit nearby crystals
+        // Update enemies - orbit crystals or wander/chase player
+        // Get player's aggro modifier (from passive upgrades, if any)
+        const playerAggroModifier = this.player.aggroRadiusModifier || 1.0;
+        
         for (const enemy of this.enemies) {
             // Check if enemy should orbit a crystal
             let foundCrystal = null;
@@ -188,12 +192,12 @@ class Game {
                 // Set enemy to orbit this crystal
                 enemy.setOrbitTarget(foundCrystal);
             } else {
-                // No crystal nearby - target the player directly
+                // No crystal nearby - enemy will wander or chase based on awareness
                 enemy.clearOrbitTarget();
-                enemy.setTarget(this.player.x, this.player.y);
             }
             
-            enemy.update(dt);
+            // Pass player position and aggro modifier for awareness checks
+            enemy.update(dt, this.player.x, this.player.y, playerAggroModifier);
         }
         
         // Check for champion fusion (enemies orbiting crystals)
@@ -224,6 +228,7 @@ class Game {
                 const enemy = this.enemies[j];
                 if (proj.checkCollision(enemy)) {
                     if (enemy.takeDamage(proj.damage)) {
+                        this.awardXp(enemy.xp);
                         this.enemies.splice(j, 1);
                         this.enemiesDefeated++;
                     }
@@ -239,6 +244,7 @@ class Game {
                 const champion = this.champions[j];
                 if (proj.checkCollision(champion)) {
                     if (champion.takeDamage(proj.damage)) {
+                        this.awardXp(champion.xp);
                         this.champions.splice(j, 1);
                         this.enemiesDefeated += 5; // Champions count as 5 enemies
                     }
@@ -264,6 +270,7 @@ class Game {
                     const enemy = this.enemies[j];
                     if (effect.affectEnemy(enemy)) {
                         if (enemy.takeDamage(effect.damage)) {
+                            this.awardXp(enemy.xp);
                             this.enemies.splice(j, 1);
                             this.enemiesDefeated++;
                         }
@@ -274,6 +281,7 @@ class Game {
                     const champion = this.champions[j];
                     if (effect.affectEnemy(champion)) {
                         if (champion.takeDamage(effect.damage)) {
+                            this.awardXp(champion.xp);
                             this.champions.splice(j, 1);
                             this.enemiesDefeated += 5;
                         }
@@ -303,6 +311,7 @@ class Game {
                 const enemy = this.enemies[j];
                 if (ring.checkCollision(enemy)) {
                     if (enemy.takeDamage(ring.damage)) {
+                        this.awardXp(enemy.xp);
                         this.enemies.splice(j, 1);
                         this.enemiesDefeated++;
                     }
@@ -314,6 +323,7 @@ class Game {
                 const champion = this.champions[j];
                 if (ring.checkCollision(champion)) {
                     if (champion.takeDamage(ring.damage)) {
+                        this.awardXp(champion.xp);
                         this.champions.splice(j, 1);
                         this.enemiesDefeated += 5;
                     }
@@ -325,6 +335,7 @@ class Game {
         const shieldHits = this.powerManager.checkOrbitalShieldCollisions(this.enemies);
         for (const hit of shieldHits) {
             if (hit.enemy.takeDamage(hit.damage)) {
+                this.awardXp(hit.enemy.xp);
                 const idx = this.enemies.indexOf(hit.enemy);
                 if (idx !== -1) {
                     this.enemies.splice(idx, 1);
@@ -337,6 +348,7 @@ class Game {
         const championShieldHits = this.powerManager.checkOrbitalShieldCollisions(this.champions);
         for (const hit of championShieldHits) {
             if (hit.enemy.takeDamage(hit.damage)) {
+                this.awardXp(hit.enemy.xp);
                 const idx = this.champions.indexOf(hit.enemy);
                 if (idx !== -1) {
                     this.champions.splice(idx, 1);
@@ -402,6 +414,8 @@ class Game {
         // Update UI
         this.ui.updateCrystals(this.player.crystals);
         this.ui.updatePowers(this.player.powers);
+        this.ui.updateXpBar(this.player.xp, this.player.getXpForNextLevel(), this.player.playerLevel);
+        this.ui.updatePassiveUpgrades(this.player.passiveUpgrades);
         
         // Check game over
         if (this.player.health <= 0) {
@@ -523,6 +537,25 @@ class Game {
     gameOver() {
         this.running = false;
         this.ui.showGameOver(this.gameTime, this.enemiesDefeated);
+    }
+
+    // Award XP for killing an enemy and check for passive upgrade level up
+    awardXp(xpAmount) {
+        const leveledUp = this.player.addXp(xpAmount);
+        if (leveledUp) {
+            this.triggerPassiveUpgrade();
+        }
+    }
+
+    triggerPassiveUpgrade() {
+        this.paused = true;
+        
+        const options = generatePassiveUpgradeOptions(3);
+        
+        this.ui.showPassiveUpgrade(options, this.player, (selectedUpgrade) => {
+            this.player.addPassiveUpgrade(selectedUpgrade.id);
+            this.paused = false;
+        });
     }
 
     checkChampionFusion() {

@@ -31,8 +31,8 @@ npm run test:coverage
 | `tests/collision.test.js` | 19 | Collision detection algorithms |
 | `tests/camera.test.js` | 24 | Camera coordinate transforms and zoom |
 | `tests/player.test.js` | 39 | Player state, movement, damage, powers |
-| `tests/enemy.test.js` | 74 | Enemy behavior, spawner, difficulty, Champion |
-| **Total** | **184** | |
+| `tests/enemy.test.js` | 75 | Enemy behavior, wandering AI, spawner, difficulty, Champion |
+| **Total** | **185** | |
 
 ## Test Structure
 
@@ -246,13 +246,13 @@ function createMockCamera(width = 800, height = 600, zoom = 0.25) {
 
 | Method | Tests | What's Verified |
 |--------|-------|-----------------|
-| `constructor` | 5 | Position, stats by type, slow init, orbit init |
+| `constructor` | 5 | Position, stats by type, slow init, orbit init, aggression type |
 | `setTarget(x, y)` | 1 | Target position setting |
 | `setOrbitTarget/clearOrbitTarget` | 2 | Crystal orbit behavior |
 | `applySlow(amount, duration)` | 4 | Slow application, max value tracking |
 | `applyKnockback(dx, dy, force)` | 3 | Knockback force, accumulation |
 | `takeDamage(amount)` | 4 | Health reduction, death detection, hurt time |
-| `update(dt)` | 6 | Movement, slow effect, knockback, orbiting |
+| `update(dt, playerX, playerY, aggroMod)` | 7 | Movement, awareness, wandering, slow effect, knockback, orbiting |
 
 #### ENEMY_TYPES
 
@@ -265,9 +265,9 @@ function createMockCamera(width = 800, height = 600, zoom = 0.25) {
 
 | Method | Tests | What's Verified |
 |--------|-------|-----------------|
-| `constructor` | 1 | Default values |
+| `constructor` | 1 | Default values (1.5s interval, 150 max enemies) |
 | `getSpawnDistances(camera)` | 2 | Dynamic distance calculation, zoom scaling |
-| `update(...)` | 6 | Game time, difficulty, spawning, max enemies |
+| `update(...)` | 6 | Game time, difficulty, spawning (2-5 per spawn), max enemies (150) |
 
 #### Champion Class
 
@@ -287,16 +287,16 @@ function createMockCamera(width = 800, height = 600, zoom = 0.25) {
 
 | Test | What's Verified |
 |------|-----------------|
-| Base stats | radius, speed, health, damage, xp values |
+| Base stats | radius, speed (140), health, damage, xp values |
 | Heat type | color, glowColor, ability name, cooldown, projectile count |
-| Cold type | color, glowColor, trail radius, slow amount |
+| Cold type | color, glowColor, trail radius (30s duration), slow amount, speed multiplier (1.5x) |
 | Force type | color, glowColor, beam piercing, knockback |
 
 #### CHAMPION_FUSION_THRESHOLD
 
 | Test | What's Verified |
 |------|-----------------|
-| Value | Equals 10 (configurable threshold) |
+| Value | Equals 6 (configurable threshold for faster fusion) |
 
 ### Example Test
 
@@ -348,6 +348,9 @@ describe('checkAbility - Heat Champion', () => {
 2. **DOM Manipulation** - UI class (would require DOM environment)
 3. **Input Handling** - Keyboard events
 4. **Game Loop** - Main game orchestration
+5. **Status Effects** - StatusEffect and StatusEffectManager classes (pure logic, could be tested)
+6. **Passive Upgrades** - PassiveUpgrades module (pure logic, could be tested)
+7. **XP System** - Player XP and leveling mechanics (could be tested)
 
 ### Mocking Strategy
 

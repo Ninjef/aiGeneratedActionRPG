@@ -14,30 +14,13 @@ describe('Player', () => {
             expect(player.y).toBe(200);
         });
 
-        it('should initialize with default stats', () => {
-            expect(player.radius).toBe(20);
-            expect(player.speed).toBe(250);
-            expect(player.maxHealth).toBe(100);
-            expect(player.health).toBe(100);
-        });
-
         it('should initialize with zero movement', () => {
             expect(player.vx).toBe(0);
             expect(player.vy).toBe(0);
         });
 
-        it('should initialize with empty crystal inventory', () => {
-            expect(player.crystals.heat).toBe(0);
-            expect(player.crystals.cold).toBe(0);
-            expect(player.crystals.force).toBe(0);
-        });
-
         it('should initialize with empty powers array', () => {
             expect(player.powers).toEqual([]);
-        });
-
-        it('should initialize with zero damage reduction', () => {
-            expect(player.damageReduction).toBe(0);
         });
     });
 

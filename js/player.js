@@ -1,12 +1,19 @@
 // Player class
 
 import { StatusEffectManager } from './statusEffects.js';
+import { 
+    PASSIVE_UPGRADES, 
+    getSpeedBonus, 
+    getDamageReduction, 
+    getAggroRadiusModifier 
+} from './passiveUpgrades.js';
 
 export class Player {
     constructor(x, y) {
         this.x = x;
         this.y = y;
         this.radius = 20;
+        this.baseSpeed = 250;
         this.speed = 250;
         this.maxHealth = 100;
         this.health = this.maxHealth;
@@ -25,8 +32,17 @@ export class Player {
         // Active powers
         this.powers = [];
         
-        // Defense modifier (from powers)
+        // Defense modifier (from powers and passive upgrades)
         this.damageReduction = 0;
+        this.baseDamageReduction = 0; // From active powers
+        
+        // XP and leveling system (separate from crystal-based powers)
+        this.xp = 0;
+        this.playerLevel = 1;
+        this.passiveUpgrades = [];
+        
+        // Aggro radius modifier (from passive upgrades)
+        this.aggroRadiusModifier = 1.0;
         
         // Invincibility frames after taking damage
         this.invincibleTime = 0;
@@ -118,6 +134,68 @@ export class Player {
         power.level = 1;
         this.powers.push(power);
         return power;
+    }
+
+    // XP System methods
+    getXpForNextLevel() {
+        // Diminishing returns formula: 50 * (1.5 ^ level)
+        // Level 1->2: 75 XP, Level 2->3: 112 XP, Level 3->4: 168 XP, etc.
+        return Math.floor(50 * Math.pow(1.5, this.playerLevel));
+    }
+
+    addXp(amount) {
+        this.xp += amount;
+        
+        // Check for level up
+        const xpNeeded = this.getXpForNextLevel();
+        if (this.xp >= xpNeeded) {
+            this.xp -= xpNeeded;
+            this.playerLevel++;
+            return true; // Level up occurred
+        }
+        return false;
+    }
+
+    addPassiveUpgrade(upgradeId) {
+        const def = PASSIVE_UPGRADES[upgradeId];
+        if (!def) return false;
+
+        // Handle instant effects (like healing)
+        if (def.effect.heal) {
+            this.heal(def.effect.heal);
+        }
+
+        // Check if we already have this upgrade
+        const existing = this.passiveUpgrades.find(u => u.id === upgradeId);
+        if (existing && def.stackable) {
+            existing.stacks = (existing.stacks || 1) + 1;
+        } else if (!existing) {
+            this.passiveUpgrades.push({ id: upgradeId, stacks: 1 });
+        }
+        // Non-stackable upgrades that already exist just don't add again (but heal still applies)
+
+        // Recalculate all bonuses
+        this.recalculateBonuses();
+        return true;
+    }
+
+    recalculateBonuses() {
+        // Speed bonus from passive upgrades
+        const speedBonus = getSpeedBonus(this.passiveUpgrades);
+        this.speed = this.baseSpeed * (1 + speedBonus);
+
+        // Damage reduction from passive upgrades (combined with active power reduction)
+        const passiveDR = getDamageReduction(this.passiveUpgrades);
+        this.damageReduction = Math.min(0.75, this.baseDamageReduction + passiveDR);
+
+        // Aggro radius modifier
+        this.aggroRadiusModifier = getAggroRadiusModifier(this.passiveUpgrades);
+    }
+
+    // Set base damage reduction (from active powers like Frozen Armor)
+    setBaseDamageReduction(amount) {
+        this.baseDamageReduction = amount;
+        this.recalculateBonuses();
     }
 
     render(ctx, camera) {

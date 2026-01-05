@@ -40,6 +40,7 @@ npm run test:watch # Watch mode for development
 │   ├── crystal.js      # Crystal class + CrystalSpawner
 │   ├── powers.js       # Power definitions + PowerManager
 │   ├── projectile.js   # Projectile, AreaEffect, RingEffect, OrbitalShield classes
+│   ├── statusEffects.js # StatusEffect + StatusEffectManager for temporary buffs
 │   ├── camera.js       # Camera class for infinite world viewport + zoom
 │   ├── collision.js    # Collision detection utilities
 │   ├── ui.js           # UI class for DOM manipulation
@@ -147,15 +148,23 @@ All entity rendering is scaled by `camera.zoom` for proper proportions at any zo
 ### Enemy Behavior
 
 ```javascript
-// Enemy targeting priority:
-1. Check if any crystal is within aggroRadius (200 units)
-2. If yes → orbit around that crystal
-3. If no → move toward player
+// Enemy AI - Wandering with Awareness System:
+1. Check if any crystal is within aggroRadius (350 units)
+   → If yes: orbit around that crystal
+2. If no crystal, check distance to player with awareness radius:
+   → Within awareness radius: chase player
+   → Outside awareness radius: wander randomly
+
+// Enemy Aggression Types (assigned at spawn):
+Aggressive (60% chance): awarenessRadius = 600 units, bright glow
+Passive (40% chance):    awarenessRadius = 250 units, dim glow
+
+// 60% of enemies spawn near crystals (increased for faster champion fusion)
 
 // Enemy types (defined in ENEMY_TYPES):
-small:  { radius: 12, speed: 180, health: 20,  damage: 5  }
-medium: { radius: 22, speed: 120, health: 50,  damage: 10 }
-large:  { radius: 35, speed: 70,  health: 120, damage: 20 }
+small:  { radius: 12, speed: 180, health: 20,  damage: 5,  xp: 10  }
+medium: { radius: 22, speed: 120, health: 50,  damage: 10, xp: 25  }
+large:  { radius: 35, speed: 70,  health: 120, damage: 20, xp: 50  }
 ```
 
 ### Champion Enemy Fusion
@@ -164,7 +173,7 @@ When enough enemies orbit a single crystal, they merge into a powerful **Champio
 
 ```javascript
 // Fusion is triggered when this many enemies orbit a crystal
-CHAMPION_FUSION_THRESHOLD = 10  // Configurable in enemy.js
+CHAMPION_FUSION_THRESHOLD = 6  // Configurable in enemy.js
 
 // When fusion occurs:
 1. All orbiting enemies are removed
@@ -178,7 +187,7 @@ CHAMPION_FUSION_THRESHOLD = 10  // Configurable in enemy.js
 ```javascript
 // Champion base stats (defined in CHAMPION_CONFIG):
 radius: 50      // Larger than any regular enemy
-speed: 90       // Slower but menacing
+speed: 140      // Faster than all regular enemies (was 90)
 health: 350     // Very durable
 damage: 30      // High contact damage
 xp: 200         // Worth 5x a large enemy
@@ -189,7 +198,7 @@ xp: 200         // Worth 5x a large enemy
 | Crystal Type | Ability | Cooldown | Effect |
 |--------------|---------|----------|--------|
 | Heat | Flame Burst | 1.5s | Shoots 3 fireballs in a spread toward player |
-| Cold | Frost Trail | While moving | Leaves frost zones that slow and damage player |
+| Cold | Frost Trail | While moving | Leaves frost zones (30s duration) that slow and damage player. Cold champions move 50% faster. |
 | Force | Force Beam | 2.0s | Fires piercing beam with knockback toward player |
 
 #### Champion Visual Design
@@ -205,11 +214,12 @@ xp: 200         // Worth 5x a large enemy
 - Three types: `heat`, `cold`, `force`
 - Spawn dynamically based on visible screen area (30-90% of half diagonal)
 - Collected on contact (30 unit collection radius)
-- Each crystal has `aggroRadius` of 200 units that attracts enemies
+- Each crystal has `aggroRadius` of 350 units that attracts enemies
 - Max 15 crystals in world at once
 - Despawn when 150% of visible diagonal from player
+- **Collecting a crystal triggers a Supercharge effect** (see Status Effect System)
 
-### Power System
+### Power System (Crystal-Based)
 
 #### Level-Up Flow
 
@@ -219,6 +229,8 @@ xp: 200         // Worth 5x a large enemy
    - Example: 2 cold + 3 force → 40% cold options, 60% force options
 4. Player selects a power
 5. Crystals reset to 0, game resumes
+
+**Note:** This is separate from the XP-based passive upgrade system.
 
 #### Power Definitions (`POWERS` object in `powers.js`)
 
@@ -259,6 +271,98 @@ xp: 200         // Worth 5x a large enemy
 - Casts powers automatically when cooldown expires
 - Handles passive power effects (damage reduction, orbital shields)
 - Contains `castX()` methods for each power that create projectiles/effects
+- Uses `getEffectiveLevel(power)` to combine base level + status effect bonuses
+
+### XP and Passive Upgrade System
+
+A parallel progression system separate from crystal-based powers.
+
+#### XP Mechanics
+
+**Gaining XP:**
+- Small enemies: 10 XP
+- Medium enemies: 25 XP
+- Large enemies: 50 XP
+- Champions: 200 XP
+
+**Level Up Formula:**
+```javascript
+XP needed = 50 × (1.5 ^ playerLevel)
+// Level 1→2: 75 XP
+// Level 2→3: 112 XP
+// Level 3→4: 168 XP
+// Diminishing returns continues
+```
+
+#### Passive Upgrades (`passiveUpgrades.js`)
+
+When player levels up via XP, they choose from 3 random passive upgrades:
+
+|| Upgrade | Category | Effect | Stackable |
+||---------|----------|--------|-----------|
+|| Frost Efficiency | Cold | Cold powers fire 15% faster | Yes |
+|| Flame Intensity | Heat | Heat powers fire 15% faster | Yes |
+|| Force Mastery | Force | Force powers fire 15% faster | Yes |
+|| Swift Stride | Neutral | +12% movement speed | Yes |
+|| Second Wind | Neutral | Instantly heal 25 HP | No (but can pick again) |
+|| Tough Hide | Neutral | +8% damage reduction | Yes |
+|| Low Profile | Neutral | Enemies detect you 15% closer | Yes |
+
+**Stackable Effects:**
+- Cooldown reductions stack up to 75% max
+- Speed bonuses stack without limit
+- Damage reduction stacks up to 60% max
+- Aggro reduction stacks up to 60% max (min 40% detection range)
+
+**Aggro Radius Modifier:**
+- Reduces enemy awareness radius
+- Works with both aggressive and passive enemy types
+- Example: 30% reduction → aggressive enemies detect at 420 units instead of 600
+
+### Status Effect System (`statusEffects.js`)
+
+A reusable framework for temporary effects that modify gameplay.
+
+#### StatusEffect Class
+
+```javascript
+// Each status effect has:
+{
+  type: 'supercharge',      // Effect identifier
+  category: 'heat',         // Crystal category (or null for global)
+  duration: 7.0,            // Total duration in seconds
+  remaining: 7.0,           // Time left
+  config: {                 // Effect-specific data
+    bonusLevels: 3          // Power level bonus for supercharge
+  }
+}
+```
+
+#### StatusEffectManager
+
+Attached to the Player, manages all active status effects:
+
+- `addEffect(effect)` - Add new effect (refreshes duration if same type/category exists)
+- `update(dt)` - Tick all effects, remove expired ones
+- `getBonusLevels(category)` - Get total power bonus for a category
+- `hasEffect(type, category)` - Check if effect is active
+- `getActiveEffects()` - Get all effects for UI display
+
+#### Supercharge Effect
+
+When the player collects a crystal:
+
+1. A **supercharge effect** is applied for that crystal's category
+2. All powers of that category gain **+3 bonus levels** for **7 seconds**
+3. This affects damage, cooldowns, projectile counts, and all level-scaled stats
+4. Collecting another crystal of the same type **refreshes the duration**
+
+```javascript
+// Example: Collecting a heat crystal
+// If player has Fireball Barrage at level 2:
+// → Effective level becomes 2 + 3 = 5 for 7 seconds
+// → More fireballs, faster cooldown, higher damage
+```
 
 ### Effect Classes (`projectile.js`)
 
@@ -286,12 +390,16 @@ findClosest(entities, x, y)              // Nearest entity to point
 ```javascript
 // In EnemySpawner:
 difficulty = 1 + floor(gameTime / 30) * 0.5  // +0.5 every 30 seconds
-spawnInterval = max(0.5, 2.0 - difficulty * 0.2)  // Faster spawns
-spawnCount = min(3, ceil(difficulty))  // More enemies per spawn
+spawnInterval = max(0.3, 1.5 - difficulty * 0.15)  // Faster spawns (was 0.5, 2.0)
+spawnCount = min(5, ceil(difficulty) + 1)  // More enemies per spawn (was min 3)
 
 // Enemy type chances based on difficulty:
 difficulty >= 3: 20% chance large enemies
 difficulty >= 2: 40% chance medium enemies
+
+// Enemy aggression types (assigned at spawn):
+60% chance: Aggressive (600 unit awareness, bright glow)
+40% chance: Passive (250 unit awareness, dim glow)
 ```
 
 ## Key Game Constants
@@ -304,13 +412,18 @@ difficulty >= 2: 40% chance medium enemies
 | Camera zoom | 0.40 | `camera.js` |
 | Base attack cooldown | 0.8s | `game.js` |
 | Crystals to level up | 5 | `game.js` |
-| Crystal aggro radius | 200 | `crystal.js` |
+| Crystal aggro radius | 350 | `crystal.js` |
+| Crystal spawn near chance | 60% | `enemy.js` |
 | Max enemies | 100 | `enemy.js` |
 | Max crystals | 15 | `crystal.js` |
-| Champion fusion threshold | 10 | `enemy.js` |
+| Champion fusion threshold | 6 | `enemy.js` |
 | Champion radius | 50 | `enemy.js` |
 | Champion health | 350 | `enemy.js` |
 | Champion damage | 30 | `enemy.js` |
+| Supercharge duration | 7.0s | `statusEffects.js` |
+| Supercharge bonus levels | +3 | `statusEffects.js` |
+| Projectile lifetime (base) | 3.5s | `game.js` |
+| Projectile lifetime (powers) | 3-3.5s | `powers.js` |
 
 Note: Enemy/crystal spawn and despawn distances are now **dynamically calculated** based on camera zoom and screen size.
 
@@ -318,9 +431,12 @@ Note: Enemy/crystal spawn and despawn distances are now **dynamically calculated
 
 The UI class manages all DOM elements:
 
-- **Crystal display** - Shows count of each crystal type + total
-- **Powers display** - Lists active powers with levels
-- **Level-up modal** - Power selection on level up
+- **Crystal display** - Shows count of each crystal type + total (max 5)
+- **XP bar** - Shows current XP, next level requirement, and player level (gold-themed)
+- **Powers display** - Lists active powers with levels (crystal-based powers)
+- **Passive upgrades display** - Shows acquired passive upgrades with stack counts
+- **Level-up modal** - Power selection on crystal level up (blue-themed)
+- **Passive upgrade modal** - Passive upgrade selection on XP level up (gold-themed)
 - **Game over modal** - Shows survival time and enemies defeated
 - **Start screen** - Initial game start
 
@@ -344,17 +460,25 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 
 ## Adding New Content
 
-### New Power
+### New Power (Crystal-Based)
 
 1. Add definition to `POWERS` object in `powers.js`
 2. Add `castX()` method in `PowerManager`
 3. Add case to `castPower()` switch statement
 4. If passive, add case to `updatePassivePower()`
 
+### New Passive Upgrade (XP-Based)
+
+1. Add to `PASSIVE_UPGRADES` object in `passiveUpgrades.js`
+2. If it modifies cooldowns, ensure `getCooldownReductionForCategory()` handles it
+3. If it modifies other stats, update `player.recalculateBonuses()`
+4. Add appropriate CSS styling for the upgrade's category
+
 ### New Enemy Type
 
 1. Add to `ENEMY_TYPES` object in `enemy.js`
 2. Update spawn logic in `EnemySpawner.update()` if needed
+3. Remember to set XP value for the new type
 
 ### New Effect Type
 
@@ -362,6 +486,14 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 2. Add array in `Game` class to track instances
 3. Add update/render/collision logic in game loop
 4. Ensure render method scales with `camera.zoom`
+
+### New Status Effect
+
+1. Add configuration to `STATUS_EFFECT_CONFIG` in `statusEffects.js`
+2. Create a factory function like `createSuperchargeEffect()`
+3. Apply the effect via `player.statusEffects.addEffect()`
+4. If the effect modifies power levels, update `PowerManager.getEffectiveLevel()`
+5. For other effects, add handling in relevant game systems
 
 ## Known Limitations
 

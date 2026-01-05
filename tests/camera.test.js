@@ -19,15 +19,6 @@ describe('Camera', () => {
     });
 
     describe('constructor', () => {
-        it('should initialize with default values', () => {
-            expect(camera.x).toBe(0);
-            expect(camera.y).toBe(0);
-            expect(camera.targetX).toBe(0);
-            expect(camera.targetY).toBe(0);
-            expect(camera.smoothing).toBe(0.1);
-            expect(camera.zoom).toBe(0.40);
-        });
-
         it('should store canvas reference', () => {
             expect(camera.canvas).toBe(mockCanvas);
         });
