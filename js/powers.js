@@ -3,22 +3,21 @@
 import { Projectile, AreaEffect, RingEffect, OrbitalShield } from './projectile.js';
 import { randomRange, angle, normalize, randomChoice } from './utils.js';
 import { findClosest } from './collision.js';
-import { getCooldownReductionForCategory } from './passiveUpgrades.js';
+import { getCooldownReductionForCategory, getProjectileSpeedBonus } from './passiveUpgrades.js';
 
 // Power definitions
 export const POWERS = {
     // HEAT POWERS
     fireballBarrage: {
         id: 'fireballBarrage',
-        name: 'Fireball Barrage',
-        description: 'Rapidly fires fireballs in random directions',
+        name: 'Fireball',
+        description: 'Fires a fireball that explodes on kill, damaging nearby enemies',
         category: 'heat',
-        baseCooldown: 0.3,
+        baseCooldown: 1.5,
         passive: false,
         levelScale: {
             cooldown: 0.9,    // 10% faster per level
             damage: 1.2,      // 20% more damage per level
-            count: 1          // +1 projectile every 2 levels
         }
     },
     magmaPool: {
@@ -260,25 +259,27 @@ export class PowerManager {
     }
 
     castFireballBarrage(level, def) {
-        const damage = 15 * Math.pow(def.levelScale.damage, level - 1);
-        const count = 1 + Math.floor(level / 2);
-
-        for (let i = 0; i < count; i++) {
-            const fireAngle = randomRange(0, Math.PI * 2);
-            this.projectiles.push(new Projectile(
-                this.player.x,
-                this.player.y,
-                fireAngle,
-                400,
-                damage,
-                {
-                    radius: 10,
-                    color: '#ff6b35',
-                    trailLength: 8,
-                    lifetime: 3.5
-                }
-            ));
-        }
+        const damage = 25 * Math.pow(def.levelScale.damage, level - 1);
+        const speedBonus = getProjectileSpeedBonus(this.player.passiveUpgrades, 'heat');
+        const speed = 400 * (1 + speedBonus);
+        const fireAngle = randomRange(0, Math.PI * 2);
+        
+        const projectile = new Projectile(
+            this.player.x,
+            this.player.y,
+            fireAngle,
+            speed,
+            damage,
+            {
+                radius: 10,
+                color: '#ff6b35',
+                trailLength: 8,
+                lifetime: 3.5,
+                sourceType: 'fireballPower'
+            }
+        );
+        
+        this.projectiles.push(projectile);
     }
 
     castMagmaPool(level, def) {
@@ -319,6 +320,8 @@ export class PowerManager {
     castIceShards(level, def) {
         const damage = 12 * Math.pow(def.levelScale.damage, level - 1);
         const count = 1 + Math.floor(level * (def.levelScale.count || 0.5));
+        const speedBonus = getProjectileSpeedBonus(this.player.passiveUpgrades, 'cold');
+        const speed = 500 * (1 + speedBonus);
 
         // Find nearest enemies (including champions)
         const allTargets = this.getAllTargets();
@@ -339,7 +342,7 @@ export class PowerManager {
                 this.player.x,
                 this.player.y,
                 targetAngle,
-                500,
+                speed,
                 damage,
                 {
                     radius: 8,
@@ -391,6 +394,8 @@ export class PowerManager {
     castForceBolt(level, def) {
         const damage = 18 * Math.pow(def.levelScale.damage, level - 1);
         const knockback = 150 * Math.pow(def.levelScale.knockback || 1, level - 1);
+        const speedBonus = getProjectileSpeedBonus(this.player.passiveUpgrades, 'force');
+        const speed = 600 * (1 + speedBonus);
 
         // Find nearest enemy (including champions)
         const allTargets = this.getAllTargets();
@@ -406,7 +411,7 @@ export class PowerManager {
             this.player.x,
             this.player.y,
             targetAngle,
-            600,
+            speed,
             damage,
             {
                 radius: 12,
@@ -419,7 +424,7 @@ export class PowerManager {
     }
 
     castGravityWell(level, def) {
-        const damage = 8 * Math.pow(def.levelScale.damage, level - 1);
+        const damage = 2 * Math.pow(def.levelScale.damage, level - 1);
         const radius = 120 * Math.pow(def.levelScale.radius || 1, level - 1);
         const pullForce = 3 * Math.pow(def.levelScale.pull || 1, level - 1);
 
@@ -460,62 +465,26 @@ export class PowerManager {
         }
     }
 
-    // Generate power options based on crystal weights
-    static generatePowerOptions(crystals, existingPowers) {
-        const total = crystals.heat + crystals.cold + crystals.force;
-        if (total === 0) return [];
-
-        const weights = {
-            heat: crystals.heat / total,
-            cold: crystals.cold / total,
-            force: crystals.force / total
-        };
-
+    // Generate power options based on crystal type collected
+    static generatePowerOptions(category, existingPowers) {
         const powersByCategory = {
             heat: ['fireballBarrage', 'magmaPool', 'infernoRing'],
             cold: ['iceShards', 'frostNova', 'frozenArmor'],
             force: ['forceBolt', 'gravityWell', 'orbitalShields']
         };
 
+        const categoryPowers = powersByCategory[category];
+        if (!categoryPowers) return [];
+
         const options = [];
-        const usedPowers = new Set();
-
-        for (let i = 0; i < 3; i++) {
-            // Weighted random category selection
-            const roll = Math.random();
-            let category;
-            if (roll < weights.heat) {
-                category = 'heat';
-            } else if (roll < weights.heat + weights.cold) {
-                category = 'cold';
-            } else {
-                category = 'force';
-            }
-
-            // Pick a power from this category
-            const availablePowers = powersByCategory[category].filter(p => !usedPowers.has(p));
-            if (availablePowers.length === 0) {
-                // If all powers in category are used, pick from any category
-                const allAvailable = Object.values(powersByCategory).flat().filter(p => !usedPowers.has(p));
-                if (allAvailable.length === 0) break;
-                const powerId = randomChoice(allAvailable);
-                usedPowers.add(powerId);
-                
-                const existing = existingPowers.find(p => p.id === powerId);
-                options.push({
-                    ...POWERS[powerId],
-                    currentLevel: existing ? existing.level : 0
-                });
-            } else {
-                const powerId = randomChoice(availablePowers);
-                usedPowers.add(powerId);
-                
-                const existing = existingPowers.find(p => p.id === powerId);
-                options.push({
-                    ...POWERS[powerId],
-                    currentLevel: existing ? existing.level : 0
-                });
-            }
+        
+        // Get all powers from this category
+        for (const powerId of categoryPowers) {
+            const existing = existingPowers.find(p => p.id === powerId);
+            options.push({
+                ...POWERS[powerId],
+                currentLevel: existing ? existing.level : 0
+            });
         }
 
         return options;

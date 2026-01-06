@@ -304,6 +304,14 @@ export class SpawnBlock {
         this.glowColor = this.color + '80';
     }
     
+    applySlow(amount, duration) {
+        // Spawn blocks are stationary structures, so they ignore slow effects
+    }
+
+    applyKnockback(dirX, dirY, force) {
+        // Spawn blocks are stationary structures, so they ignore knockback
+    }
+
     takeDamage(amount) {
         this.health -= amount;
         this.hurtTime = 0.15;
@@ -526,7 +534,8 @@ export class FieryEnemy {
                 y: this.y,
                 radius: this.trailRadius,
                 duration: this.trailDuration,
-                damage: this.trailDamage
+                damage: this.trailDamage,
+                creator: this  // Track which enemy created this trail
             };
         }
         

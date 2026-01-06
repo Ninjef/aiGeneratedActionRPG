@@ -27,6 +27,9 @@ export class UI {
         this.passiveOptions = document.getElementById('passive-options');
         this.gameOverModal = document.getElementById('game-over-modal');
         this.startScreen = document.getElementById('start-screen');
+        this.pauseScreen = document.getElementById('pause-screen');
+        this.startingPowerModal = document.getElementById('starting-power-modal');
+        this.startingPowerOptions = document.getElementById('starting-power-options');
         this.survivalTime = document.getElementById('survival-time');
         this.enemiesDefeated = document.getElementById('enemies-defeated');
         
@@ -167,6 +170,41 @@ export class UI {
 
     hideStartScreen() {
         this.startScreen.classList.add('hidden');
+    }
+
+    showPauseScreen() {
+        this.pauseScreen.classList.remove('hidden');
+    }
+
+    hidePauseScreen() {
+        this.pauseScreen.classList.add('hidden');
+    }
+
+    showStartingPowerSelection(options, callback) {
+        this.startingPowerModal.classList.remove('hidden');
+        this.startingPowerOptions.innerHTML = '';
+        
+        for (const option of options) {
+            const div = document.createElement('div');
+            div.className = `power-option ${option.category}`;
+            
+            div.innerHTML = `
+                <h3>${option.name}</h3>
+                <p>${option.description}</p>
+                <div class="level">New!</div>
+            `;
+            
+            div.addEventListener('click', () => {
+                this.startingPowerModal.classList.add('hidden');
+                callback(option);
+            });
+            
+            this.startingPowerOptions.appendChild(div);
+        }
+    }
+
+    hideStartingPowerSelection() {
+        this.startingPowerModal.classList.add('hidden');
     }
 }
 

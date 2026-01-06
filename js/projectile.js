@@ -20,6 +20,7 @@ export class Projectile {
         this.knockback = options.knockback || 0;
         this.slowAmount = options.slowAmount || 0;
         this.slowDuration = options.slowDuration || 0;
+        this.sourceType = options.sourceType || null; // For special projectile types
         
         // Movement
         this.vx = Math.cos(angle) * speed;
@@ -122,6 +123,9 @@ export class AreaEffect {
         this.slowDuration = options.slowDuration || 0;
         this.pullForce = options.pullForce || 0;
         this.type = options.type || 'damage';
+        this.creator = options.creator || null; // Track who created this effect
+        this.damagePlayer = options.damagePlayer || false; // Whether to damage player
+        this.playerDamage = options.playerDamage || 0; // Damage to player
     }
 
     update(dt) {
@@ -139,6 +143,11 @@ export class AreaEffect {
     }
 
     affectEnemy(enemy) {
+        // Skip the creator of this effect
+        if (this.creator && enemy === this.creator) {
+            return false;
+        }
+        
         const dist = distance(this.x, this.y, enemy.x, enemy.y);
         if (dist < this.radius + enemy.radius) {
             // Apply slow

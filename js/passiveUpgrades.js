@@ -56,6 +56,30 @@ export const PASSIVE_UPGRADES = {
         category: null,
         stackable: true,
         effect: { aggroReduction: 0.15 }
+    },
+    heatProjectileSpeed: {
+        id: 'heatProjectileSpeed',
+        name: 'Blazing Velocity',
+        description: 'Heat projectiles fly 15% faster',
+        category: 'heat',
+        stackable: true,
+        effect: { projectileSpeedBonus: 0.15 }
+    },
+    coldProjectileSpeed: {
+        id: 'coldProjectileSpeed',
+        name: 'Glacial Acceleration',
+        description: 'Cold projectiles fly 15% faster',
+        category: 'cold',
+        stackable: true,
+        effect: { projectileSpeedBonus: 0.15 }
+    },
+    forceProjectileSpeed: {
+        id: 'forceProjectileSpeed',
+        name: 'Kinetic Amplification',
+        description: 'Force projectiles fly 15% faster',
+        category: 'force',
+        stackable: true,
+        effect: { projectileSpeedBonus: 0.15 }
     }
 };
 
@@ -131,6 +155,20 @@ export function getAggroRadiusModifier(passiveUpgrades) {
     
     // Cap at 60% reduction (enemies can still see you at 40% of normal distance)
     return Math.max(0.40, 1 - Math.min(0.60, totalReduction));
+}
+
+// Calculate projectile speed bonus for a specific category
+export function getProjectileSpeedBonus(passiveUpgrades, category) {
+    let totalBonus = 0;
+    
+    for (const upgrade of passiveUpgrades) {
+        const def = PASSIVE_UPGRADES[upgrade.id];
+        if (def && def.category === category && def.effect.projectileSpeedBonus) {
+            totalBonus += def.effect.projectileSpeedBonus * (upgrade.stacks || 1);
+        }
+    }
+    
+    return totalBonus;
 }
 
 

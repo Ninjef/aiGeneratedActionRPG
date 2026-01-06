@@ -46,11 +46,31 @@ class Game {
     setupInput() {
         window.addEventListener('keydown', (e) => {
             this.keys[e.key.toLowerCase()] = true;
+            
+            // Handle ESC key for pause
+            if (e.key === 'Escape' && this.running) {
+                this.togglePause();
+            }
         });
         
         window.addEventListener('keyup', (e) => {
             this.keys[e.key.toLowerCase()] = false;
         });
+    }
+    
+    togglePause() {
+        // Don't pause if a modal is open
+        if (!this.ui.levelUpModal.classList.contains('hidden') ||
+            !this.ui.passiveUpgradeModal.classList.contains('hidden')) {
+            return;
+        }
+        
+        this.paused = !this.paused;
+        if (this.paused) {
+            this.ui.showPauseScreen();
+        } else {
+            this.ui.hidePauseScreen();
+        }
     }
 
     init() {
@@ -121,9 +141,19 @@ class Game {
 
     startGame() {
         this.ui.hideStartScreen();
-        this.init();
-        this.lastTime = performance.now();
-        requestAnimationFrame((t) => this.gameLoop(t));
+        
+        // Show starting power selection from a random element
+        const elements = ['heat', 'cold', 'force'];
+        const randomElement = elements[Math.floor(Math.random() * elements.length)];
+        const options = PowerManager.generatePowerOptions(randomElement, []);
+        
+        this.ui.showStartingPowerSelection(options, (selectedPower) => {
+            this.init();
+            // Give the player the selected starting power
+            this.player.addPower({ id: selectedPower.id, passive: selectedPower.passive });
+            this.lastTime = performance.now();
+            requestAnimationFrame((t) => this.gameLoop(t));
+        });
     }
 
     restartGame() {
@@ -236,7 +266,8 @@ class Game {
                         damageInterval: 1.0,
                         type: 'fireTrail',
                         damagePlayer: true,
-                        playerDamage: trailInfo.damage
+                        playerDamage: trailInfo.damage,
+                        creator: trailInfo.creator  // Pass creator to avoid self-damage
                     }
                 ));
             }
@@ -273,8 +304,13 @@ class Game {
             for (let j = this.builders.length - 1; j >= 0; j--) {
                 const builder = this.builders[j];
                 if (proj.checkCollision(builder)) {
-                    if (builder.takeDamage(proj.damage)) {
+                    const killed = builder.takeDamage(proj.damage);
+                    if (killed) {
                         this.awardXp(builder.xp);
+                        // Create fireball explosion if killed by fireball
+                        if (proj.sourceType === 'fireballPower') {
+                            this.createFireballExplosion(builder.x, builder.y);
+                        }
                         this.builders.splice(j, 1);
                         this.enemiesDefeated++;
                     }
@@ -311,8 +347,13 @@ class Game {
             for (let j = this.fieryEnemies.length - 1; j >= 0; j--) {
                 const fiery = this.fieryEnemies[j];
                 if (proj.checkCollision(fiery)) {
-                    if (fiery.takeDamage(proj.damage)) {
+                    const killed = fiery.takeDamage(proj.damage);
+                    if (killed) {
                         this.awardXp(fiery.xp);
+                        // Create fireball explosion if killed by fireball
+                        if (proj.sourceType === 'fireballPower') {
+                            this.createFireballExplosion(fiery.x, fiery.y);
+                        }
                         this.fieryEnemies.splice(j, 1);
                         this.enemiesDefeated++;
                     }
@@ -329,8 +370,13 @@ class Game {
             for (let j = this.gravitationalEnemies.length - 1; j >= 0; j--) {
                 const grav = this.gravitationalEnemies[j];
                 if (proj.checkCollision(grav)) {
-                    if (grav.takeDamage(proj.damage)) {
+                    const killed = grav.takeDamage(proj.damage);
+                    if (killed) {
                         this.awardXp(grav.xp);
+                        // Create fireball explosion if killed by fireball
+                        if (proj.sourceType === 'fireballPower') {
+                            this.createFireballExplosion(grav.x, grav.y);
+                        }
                         this.gravitationalEnemies.splice(j, 1);
                         this.enemiesDefeated++;
                     }
@@ -347,8 +393,13 @@ class Game {
             for (let j = this.fastPurpleEnemies.length - 1; j >= 0; j--) {
                 const purple = this.fastPurpleEnemies[j];
                 if (proj.checkCollision(purple)) {
-                    if (purple.takeDamage(proj.damage)) {
+                    const killed = purple.takeDamage(proj.damage);
+                    if (killed) {
                         this.awardXp(purple.xp);
+                        // Create fireball explosion if killed by fireball
+                        if (proj.sourceType === 'fireballPower') {
+                            this.createFireballExplosion(purple.x, purple.y);
+                        }
                         this.fastPurpleEnemies.splice(j, 1);
                         this.enemiesDefeated++;
                     }
@@ -390,15 +441,17 @@ class Game {
                         }
                     }
                 }
-                // Damage spawn blocks
-                for (let j = this.spawnBlocks.length - 1; j >= 0; j--) {
-                    const block = this.spawnBlocks[j];
-                    if (effect.affectEnemy(block)) {
-                        if (block.takeDamage(effect.damage)) {
-                            this.awardXp(block.xp);
-                            this.crystals.push(new Crystal(block.x, block.y, block.crystalType));
-                            this.spawnBlocks.splice(j, 1);
-                            this.enemiesDefeated++;
+                // Damage spawn blocks (but not from fire trails)
+                if (effect.type !== 'fireTrail') {
+                    for (let j = this.spawnBlocks.length - 1; j >= 0; j--) {
+                        const block = this.spawnBlocks[j];
+                        if (effect.affectEnemy(block)) {
+                            if (block.takeDamage(effect.damage)) {
+                                this.awardXp(block.xp);
+                                this.crystals.push(new Crystal(block.x, block.y, block.crystalType));
+                                this.spawnBlocks.splice(j, 1);
+                                this.enemiesDefeated++;
+                            }
                         }
                     }
                 }
@@ -629,19 +682,19 @@ class Game {
                 this.player.x, this.player.y, this.player.radius,
                 crystal.x, crystal.y, crystal.collectRadius
             )) {
-                this.player.collectCrystal(crystal.type);
+                const crystalType = crystal.type; // Save type before removing crystal
+                
+                this.player.collectCrystal(crystalType);
                 
                 // Apply supercharge effect - temporarily boost powers of this crystal type
                 this.player.statusEffects.addEffect(
-                    createSuperchargeEffect(crystal.type)
+                    createSuperchargeEffect(crystalType)
                 );
                 
                 this.crystals.splice(i, 1);
                 
-                // Check for level up
-                if (this.player.totalCrystals >= 5) {
-                    this.triggerLevelUp();
-                }
+                // Trigger power selection immediately with this crystal's type
+                this.triggerLevelUp(crystalType);
             }
         }
         
@@ -787,17 +840,32 @@ class Game {
         this.powerManager.setEnemies(allEnemies, []);
     }
 
-    triggerLevelUp() {
+    createFireballExplosion(x, y) {
+        // Create explosion area effect when fireball kills an enemy
+        this.areaEffects.push(new AreaEffect(
+            x,
+            y,
+            90,  // Explosion radius
+            35,  // Explosion damage
+            0.5, // Brief duration for instant damage
+            {
+                color: '#ff6b35',
+                damageInterval: 0,  // Damage immediately
+                type: 'fireballExplosion'
+            }
+        ));
+    }
+
+    triggerLevelUp(crystalType) {
         this.paused = true;
         
         const options = PowerManager.generatePowerOptions(
-            this.player.crystals,
+            crystalType,
             this.player.powers
         );
         
         this.ui.showLevelUp(options, this.player.powers, (selectedPower) => {
             this.player.addPower({ id: selectedPower.id, passive: selectedPower.passive });
-            this.player.resetCrystals();
             this.paused = false;
         });
     }

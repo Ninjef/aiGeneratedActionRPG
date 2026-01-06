@@ -90,7 +90,9 @@ body {
 
 #level-up-modal,
 #game-over-modal,
-#start-screen {
+#start-screen,
+#pause-screen,
+#starting-power-modal {
     position: fixed;
     top: 0;
     left: 0;

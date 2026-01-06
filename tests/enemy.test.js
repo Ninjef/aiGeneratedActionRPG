@@ -417,3 +417,42 @@ describe('EnemySpawner', () => {
         });
     });
 });
+
+describe('FieryEnemy trail creation', () => {
+    let fiery;
+
+    beforeEach(() => {
+        fiery = new FieryEnemy(100, 100);
+    });
+
+    describe('update trail info', () => {
+        it('should return trail info with creator reference', () => {
+            // Fast-forward to trigger trail
+            fiery.trailTimer = fiery.trailInterval;
+            
+            const trailInfo = fiery.update(0.01, 0, 0);
+            
+            expect(trailInfo).toBeDefined();
+            expect(trailInfo.type).toBe('fireTrail');
+            expect(trailInfo.creator).toBe(fiery);
+        });
+
+        it('should include trail position and properties', () => {
+            fiery.trailTimer = fiery.trailInterval;
+            
+            const trailInfo = fiery.update(0.01, 0, 0);
+            
+            expect(trailInfo.x).toBe(fiery.x);
+            expect(trailInfo.y).toBe(fiery.y);
+            expect(trailInfo.radius).toBe(20);
+            expect(trailInfo.duration).toBe(9.0);
+            expect(trailInfo.damage).toBe(6);
+        });
+
+        it('should not return trail info before interval', () => {
+            const trailInfo = fiery.update(0.01, 0, 0);
+            
+            expect(trailInfo).toBe(null);
+        });
+    });
+});
