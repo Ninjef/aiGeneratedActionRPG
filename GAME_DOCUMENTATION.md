@@ -138,85 +138,95 @@ All game entities share common patterns:
 | Entity | World Position | Radius | Update | Render |
 |--------|---------------|--------|--------|--------|
 | Player | `x, y` | 20 | Movement, invincibility | Circle + health bar |
-| Enemy | `x, y` | 12-35 | Move toward target, slow/knockback | Circle + health bar |
-| Champion | `x, y` | 50 | Move toward player, use crystal ability | Crown spikes + 3 eyes + health bar |
+| Builder | `x, y` | 15 | Flee/crystal seek/wander | Grey circle + simple eyes |
+| SpawnBlock | `x, y` | 30 | Spawn timer, spawning | Pulsing square + health bar |
+| FieryEnemy | `x, y` | 8 | Erratic movement, trails | Red circle + flame glow |
+| GravitationalEnemy | `x, y` | 18 | Player chase, mutual gravity | Blue circle + aura |
+| FastPurpleEnemy | `x, y` | 10 | High-speed chase | Purple circle + speed lines |
 | Crystal | `x, y` | 15 | Animation | Diamond shape + glow |
 | Projectile | `x, y` | 6-12 | Movement, lifetime | Circle + trail |
 
 All entity rendering is scaled by `camera.zoom` for proper proportions at any zoom level.
 
-### Enemy Behavior
+### Enemy System - Builder & Spawn Block Architecture
 
+The game features a unique enemy spawning system where **Builder** enemies convert crystals into spawn blocks, which then spawn specialized enemies.
+
+#### Enemy Types
+
+**Builder Enemies (Grey)**
 ```javascript
-// Enemy AI - Wandering with Awareness System:
-1. Check if any crystal is within aggroRadius (350 units)
-   → If yes: orbit around that crystal
-2. If no crystal, check distance to player with awareness radius:
-   → Within awareness radius: chase player
-   → Outside awareness radius: wander randomly
-
-// Enemy Aggression Types (assigned at spawn):
-Aggressive (60% chance): awarenessRadius = 600 units, bright glow
-Passive (40% chance):    awarenessRadius = 250 units, dim glow
-
-// 60% of enemies spawn near crystals (increased for faster champion fusion)
-
-// Enemy types (defined in ENEMY_TYPES):
-small:  { radius: 12, speed: 180, health: 20,  damage: 5,  xp: 10  }
-medium: { radius: 22, speed: 120, health: 50,  damage: 10, xp: 25  }
-large:  { radius: 35, speed: 70,  health: 120, damage: 20, xp: 50  }
+// Builders spawn randomly and have these behaviors:
+- Wander randomly when nothing nearby
+- Attracted to crystals within aggroRadius (350 units)
+- Flee from player when within fleeRadius (200 units)
+- Convert crystal → spawn block on contact
+- Deal NO contact damage to player
+- Stats: { radius: 15, speed: 100, health: 30, damage: 0, xp: 5 }
 ```
 
-### Champion Enemy Fusion
-
-When enough enemies orbit a single crystal, they merge into a powerful **Champion** enemy:
-
+**Spawn Blocks (Destructible Structures)**
 ```javascript
-// Fusion is triggered when this many enemies orbit a crystal
-CHAMPION_FUSION_THRESHOLD = 6  // Configurable in enemy.js
-
-// When fusion occurs:
-1. All orbiting enemies are removed
-2. The crystal is consumed (removed)
-3. A Champion spawns at the crystal's position
-4. Champion inherits the crystal's type (heat/cold/force)
+// Spawn blocks are created when builders touch crystals
+- Health: 250 HP (destructible by player attacks)
+- Color matches crystal type (red/blue/purple)
+- Spawn enemies every 5-8 seconds
+- Drop crystal of same type when destroyed
+- Award 50 XP when destroyed
+- Visual: Pulsing square with diagonal pattern
 ```
 
-#### Champion Stats
+**Specialized Combat Enemies**
+
+1. **Fiery Enemies (Red) - from Heat Spawn Blocks**
+   - Spawn: 5 enemies every 5 seconds
+   - Behavior: Erratic zig-zag movement
+   - Leave fire trails behind them (damages player)
+   - Stats: { radius: 8, speed: 250, health: 15, damage: 8, xp: 15 }
+   - Fire trail: 20 radius, 9 second duration, 6 damage
+
+2. **Gravitational Enemies (Blue) - from Cold Spawn Blocks**
+   - Spawn: 3 enemies every 5 seconds
+   - Behavior: Chase player, pull toward each other
+   - Mutual gravitational attraction (100 unit range)
+   - Form tight groups when near each other
+   - Stats: { radius: 18, speed: 80, health: 60, damage: 12, xp: 30 }
+
+3. **Fast Purple Enemies (Purple) - from Force Spawn Blocks**
+   - Spawn: 5 enemies every 8 seconds
+   - Behavior: High-speed chase toward player
+   - Simple, direct pursuit
+   - Stats: { radius: 10, speed: 200, health: 25, damage: 10, xp: 20 }
+
+#### Spawn Block Mechanics
 
 ```javascript
-// Champion base stats (defined in CHAMPION_CONFIG):
-radius: 50      // Larger than any regular enemy
-speed: 140      // Faster than all regular enemies (was 90)
-health: 350     // Very durable
-damage: 30      // High contact damage
-xp: 200         // Worth 5x a large enemy
+// Crystal → Spawn Block conversion:
+1. Builder touches crystal
+2. Builder and crystal both removed
+3. Spawn block created at crystal's position
+4. Spawn block inherits crystal type
+
+// Spawn intervals:
+Heat/Cold spawn blocks: 5.0 seconds
+Force spawn blocks: 8.0 seconds
+
+// When spawn block destroyed:
+1. Award 50 XP
+2. Drop crystal of same type
+3. Remove spawn block
 ```
-
-#### Champion Abilities by Crystal Type
-
-| Crystal Type | Ability | Cooldown | Effect |
-|--------------|---------|----------|--------|
-| Heat | Flame Burst | 1.5s | Shoots 3 fireballs in a spread toward player |
-| Cold | Frost Trail | While moving | Leaves frost zones (30s duration) that slow and damage player. Cold champions move 50% faster. |
-| Force | Force Beam | 2.0s | Fires piercing beam with knockback toward player |
-
-#### Champion Visual Design
-
-- **Large glowing aura** matching crystal color
-- **8 rotating crown spikes** around the body
-- **Pulsing crystal core** in the center (diamond shape)
-- **3 menacing eyes** (center larger than sides)
-- **Always-visible health bar** (thicker than regular enemies)
 
 ### Crystal System
 
 - Three types: `heat`, `cold`, `force`
 - Spawn dynamically based on visible screen area (30-90% of half diagonal)
 - Collected on contact (30 unit collection radius)
-- Each crystal has `aggroRadius` of 350 units that attracts enemies
+- Each crystal has `aggroRadius` of 350 units that attracts builder enemies
 - Max 15 crystals in world at once
 - Despawn when 150% of visible diagonal from player
+- **Builders convert crystals into spawn blocks on contact**
+- **Spawn blocks drop crystals when destroyed**
 - **Collecting a crystal triggers a Supercharge effect** (see Status Effect System)
 
 ### Power System (Crystal-Based)
@@ -280,10 +290,11 @@ A parallel progression system separate from crystal-based powers.
 #### XP Mechanics
 
 **Gaining XP:**
-- Small enemies: 10 XP
-- Medium enemies: 25 XP
-- Large enemies: 50 XP
-- Champions: 200 XP
+- Builders: 5 XP
+- Fiery enemies: 15 XP
+- Gravitational enemies: 30 XP
+- Fast purple enemies: 20 XP
+- Spawn blocks: 50 XP
 
 **Level Up Formula:**
 ```javascript
@@ -390,16 +401,13 @@ findClosest(entities, x, y)              // Nearest entity to point
 ```javascript
 // In EnemySpawner:
 difficulty = 1 + floor(gameTime / 30) * 0.5  // +0.5 every 30 seconds
-spawnInterval = max(0.3, 1.5 - difficulty * 0.15)  // Faster spawns (was 0.5, 2.0)
-spawnCount = min(5, ceil(difficulty) + 1)  // More enemies per spawn (was min 3)
+spawnInterval = max(0.3, 1.5 - difficulty * 0.15)  // Faster spawns
+spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 
-// Enemy type chances based on difficulty:
-difficulty >= 3: 20% chance large enemies
-difficulty >= 2: 40% chance medium enemies
-
-// Enemy aggression types (assigned at spawn):
-60% chance: Aggressive (600 unit awareness, bright glow)
-40% chance: Passive (250 unit awareness, dim glow)
+// All spawned enemies are builders
+// Specialized enemies come from spawn blocks, not direct spawning
+// As more builders spawn, more spawn blocks are created
+// More spawn blocks = more specialized enemies
 ```
 
 ## Key Game Constants
@@ -413,13 +421,13 @@ difficulty >= 2: 40% chance medium enemies
 | Base attack cooldown | 0.8s | `game.js` |
 | Crystals to level up | 5 | `game.js` |
 | Crystal aggro radius | 350 | `crystal.js` |
-| Crystal spawn near chance | 60% | `enemy.js` |
-| Max enemies | 100 | `enemy.js` |
+| Max builders | 150 | `enemy.js` |
 | Max crystals | 15 | `crystal.js` |
-| Champion fusion threshold | 6 | `enemy.js` |
-| Champion radius | 50 | `enemy.js` |
-| Champion health | 350 | `enemy.js` |
-| Champion damage | 30 | `enemy.js` |
+| Builder flee radius | 200 | `enemy.js` |
+| Spawn block health | 250 | `enemy.js` |
+| Spawn block XP | 50 | `enemy.js` |
+| Fire trail duration | 9.0s | `enemy.js` |
+| Gravity range | 100 | `enemy.js` |
 | Supercharge duration | 7.0s | `statusEffects.js` |
 | Supercharge bonus levels | +3 | `statusEffects.js` |
 | Projectile lifetime (base) | 3.5s | `game.js` |
@@ -446,17 +454,19 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 
 1. Grid background (scrolls with camera)
 2. Ambient particles
-3. Area effects (magma pools, gravity wells, frost nova, frost trails)
+3. Area effects (magma pools, gravity wells, frost nova, fire trails)
 4. Ring effects (inferno ring)
 5. Crystals
-6. Enemies
-7. Champions
-8. Orbital shields
-9. Player
-10. Player projectiles
-11. Enemy projectiles (from Champions)
-12. Vignette overlay
-13. Game timer (top center)
+6. Builders
+7. Spawn blocks
+8. Fiery enemies
+9. Gravitational enemies
+10. Fast purple enemies
+11. Orbital shields
+12. Player
+13. Player projectiles
+14. Vignette overlay
+15. Game timer (top center)
 
 ## Adding New Content
 
@@ -476,9 +486,12 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 
 ### New Enemy Type
 
-1. Add to `ENEMY_TYPES` object in `enemy.js`
-2. Update spawn logic in `EnemySpawner.update()` if needed
-3. Remember to set XP value for the new type
+1. Create new enemy class in `enemy.js` (extend from base pattern)
+2. Add configuration to `ENEMY_TYPES` object
+3. Add rendering logic for the new enemy type
+4. Update spawn block spawning logic if it's spawned by blocks
+5. Remember to set XP value for the new type
+6. Add to all relevant collision and update arrays in `game.js`
 
 ### New Effect Type
 

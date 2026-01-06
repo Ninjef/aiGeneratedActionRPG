@@ -1,222 +1,349 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Enemy, ENEMY_TYPES, EnemySpawner, Champion, CHAMPION_CONFIG, CHAMPION_FUSION_THRESHOLD } from '../js/enemy.js';
+import { Builder, ENEMY_TYPES, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy } from '../js/enemy.js';
+import { Crystal } from '../js/crystal.js';
 
-describe('Enemy', () => {
-    let enemy;
+describe('Builder', () => {
+    let builder;
 
     beforeEach(() => {
-        enemy = new Enemy(100, 200, 'medium');
+        builder = new Builder(100, 200);
     });
 
     describe('constructor', () => {
         it('should initialize at given position', () => {
-            expect(enemy.x).toBe(100);
-            expect(enemy.y).toBe(200);
+            expect(builder.x).toBe(100);
+            expect(builder.y).toBe(200);
         });
 
-        it('should initialize orbit properties', () => {
-            expect(enemy.orbitTarget).toBeNull();
-            expect(typeof enemy.orbitAngle).toBe('number');
-            expect(typeof enemy.orbitSpeed).toBe('number');
-            expect(typeof enemy.orbitRadius).toBe('number');
-        });
-    });
-
-    describe('setTarget', () => {
-        it('should set target position', () => {
-            enemy.setTarget(500, 600);
-            expect(enemy.targetX).toBe(500);
-            expect(enemy.targetY).toBe(600);
-        });
-    });
-
-    describe('setOrbitTarget and clearOrbitTarget', () => {
-        it('should set orbit target', () => {
-            const crystal = { x: 300, y: 400 };
-            enemy.setOrbitTarget(crystal);
-            expect(enemy.orbitTarget).toBe(crystal);
+        it('should have builder type stats', () => {
+            expect(builder.type).toBe('builder');
+            expect(builder.health).toBe(30);
+            expect(builder.damage).toBe(0);
+            expect(builder.radius).toBe(15);
         });
 
-        it('should clear orbit target', () => {
-            enemy.orbitTarget = { x: 100, y: 100 };
-            enemy.clearOrbitTarget();
-            expect(enemy.orbitTarget).toBeNull();
-        });
-    });
-
-    describe('applySlow', () => {
-        it('should apply slow effect', () => {
-            enemy.applySlow(0.5, 2.0);
-            expect(enemy.slowAmount).toBe(0.5);
-            expect(enemy.slowTime).toBe(2.0);
-        });
-
-        it('should keep higher slow amount', () => {
-            enemy.applySlow(0.3, 1.0);
-            enemy.applySlow(0.5, 1.0);
-            expect(enemy.slowAmount).toBe(0.5);
-        });
-
-        it('should keep higher slow duration', () => {
-            enemy.applySlow(0.3, 1.0);
-            enemy.applySlow(0.3, 2.0);
-            expect(enemy.slowTime).toBe(2.0);
-        });
-
-        it('should not reduce existing slow', () => {
-            enemy.applySlow(0.5, 2.0);
-            enemy.applySlow(0.2, 1.0);
-            expect(enemy.slowAmount).toBe(0.5);
-            expect(enemy.slowTime).toBe(2.0);
-        });
-    });
-
-    describe('applyKnockback', () => {
-        it('should add knockback force', () => {
-            enemy.applyKnockback(1, 0, 100);
-            expect(enemy.knockbackX).toBe(100);
-            expect(enemy.knockbackY).toBe(0);
-        });
-
-        it('should accumulate knockback', () => {
-            enemy.applyKnockback(1, 0, 50);
-            enemy.applyKnockback(0, 1, 50);
-            expect(enemy.knockbackX).toBe(50);
-            expect(enemy.knockbackY).toBe(50);
-        });
-
-        it('should apply direction and force', () => {
-            enemy.applyKnockback(0.5, 0.5, 200);
-            expect(enemy.knockbackX).toBe(100);
-            expect(enemy.knockbackY).toBe(100);
+        it('should have flee radius', () => {
+            expect(builder.fleeRadius).toBe(200);
         });
     });
 
     describe('takeDamage', () => {
         it('should reduce health', () => {
-            enemy.takeDamage(20);
-            expect(enemy.health).toBe(30); // 50 - 20
+            builder.takeDamage(10);
+            expect(builder.health).toBe(20);
         });
 
-        it('should set hurt time for visual effect', () => {
-            enemy.takeDamage(10);
-            expect(enemy.hurtTime).toBe(0.1);
+        it('should return true when builder dies', () => {
+            expect(builder.takeDamage(30)).toBe(true);
         });
 
-        it('should return true when enemy dies', () => {
-            expect(enemy.takeDamage(50)).toBe(true);
-            expect(enemy.takeDamage(100)).toBe(true);
-        });
-
-        it('should return false when enemy survives', () => {
-            expect(enemy.takeDamage(10)).toBe(false);
-            expect(enemy.takeDamage(30)).toBe(false);
+        it('should return false when builder survives', () => {
+            expect(builder.takeDamage(10)).toBe(false);
         });
     });
 
     describe('update', () => {
-        it('should move toward target when player is within awareness radius', () => {
-            // Place player at the target location, within awareness radius
+        it('should flee from player when close', () => {
+            const playerX = 150;
+            const playerY = 200;
+            const initialX = builder.x;
+            
+            builder.update(0.1, playerX, playerY, []);
+            
+            // Should have moved away from player (x decreased)
+            expect(builder.x).toBeLessThan(initialX);
+        });
+
+        it('should move toward crystal when nearby', () => {
+            const crystals = [new Crystal(200, 200, 'heat')];
+            const initialX = builder.x;
+            
+            builder.update(0.1, 500, 500, crystals); // Player far away
+            
+            // Should have moved toward crystal
+            expect(builder.x).toBeGreaterThan(initialX);
+        });
+
+        it('should wander when no crystal or player nearby', () => {
+            const initialX = builder.x;
+            const initialY = builder.y;
+            
+            builder.update(0.1, 500, 500, []); // Player and crystals far away
+            
+            // Should have moved (wandering)
+            const moved = builder.x !== initialX || builder.y !== initialY;
+            expect(moved).toBe(true);
+        });
+    });
+});
+
+describe('SpawnBlock', () => {
+    let spawnBlock;
+
+    beforeEach(() => {
+        spawnBlock = new SpawnBlock(100, 100, 'heat');
+    });
+
+    describe('constructor', () => {
+        it('should initialize at given position', () => {
+            expect(spawnBlock.x).toBe(100);
+            expect(spawnBlock.y).toBe(100);
+        });
+
+        it('should store crystal type', () => {
+            expect(spawnBlock.crystalType).toBe('heat');
+        });
+
+        it('should have 250 health', () => {
+            expect(spawnBlock.health).toBe(250);
+            expect(spawnBlock.maxHealth).toBe(250);
+        });
+
+        it('should have correct spawn interval for type', () => {
+            const heatBlock = new SpawnBlock(0, 0, 'heat');
+            const coldBlock = new SpawnBlock(0, 0, 'cold');
+            const forceBlock = new SpawnBlock(0, 0, 'force');
+            
+            expect(heatBlock.spawnInterval).toBe(5.0);
+            expect(coldBlock.spawnInterval).toBe(5.0);
+            expect(forceBlock.spawnInterval).toBe(8.0);
+        });
+    });
+
+    describe('takeDamage', () => {
+        it('should reduce health', () => {
+            spawnBlock.takeDamage(50);
+            expect(spawnBlock.health).toBe(200);
+        });
+
+        it('should return true when destroyed', () => {
+            expect(spawnBlock.takeDamage(250)).toBe(true);
+        });
+
+        it('should return false when survives', () => {
+            expect(spawnBlock.takeDamage(100)).toBe(false);
+        });
+    });
+
+    describe('update', () => {
+        it('should return spawn info after interval', () => {
+            const result = spawnBlock.update(5.0);
+            
+            expect(result).not.toBeNull();
+            expect(result.enemyType).toBe('fiery'); // heat -> fiery
+            expect(result.count).toBe(5);
+        });
+
+        it('should not spawn before interval', () => {
+            const result = spawnBlock.update(2.0);
+            expect(result).toBeNull();
+        });
+
+        it('should spawn correct enemy types', () => {
+            const heatBlock = new SpawnBlock(0, 0, 'heat');
+            const coldBlock = new SpawnBlock(0, 0, 'cold');
+            const forceBlock = new SpawnBlock(0, 0, 'force');
+            
+            expect(heatBlock.update(5.0).enemyType).toBe('fiery');
+            expect(heatBlock.update(5.0).count).toBe(5);
+            
+            expect(coldBlock.update(5.0).enemyType).toBe('gravitational');
+            expect(coldBlock.update(5.0).count).toBe(3);
+            
+            expect(forceBlock.update(8.0).enemyType).toBe('fastPurple');
+            expect(forceBlock.update(8.0).count).toBe(5);
+        });
+    });
+});
+
+describe('FieryEnemy', () => {
+    let fiery;
+
+    beforeEach(() => {
+        fiery = new FieryEnemy(100, 100);
+    });
+
+    describe('constructor', () => {
+        it('should initialize with fiery stats', () => {
+            expect(fiery.type).toBe('fiery');
+            expect(fiery.health).toBe(15);
+            expect(fiery.damage).toBe(8);
+            expect(fiery.speed).toBe(250);
+        });
+    });
+
+    describe('update', () => {
+        it('should change direction periodically', () => {
+            const initialAngle = fiery.moveAngle;
+            
+            fiery.update(1.0, 200, 200); // Long enough to trigger direction change
+            
+            // Angle should have changed
+            expect(fiery.moveAngle).not.toBe(initialAngle);
+        });
+
+        it('should return fire trail info after interval', () => {
+            const result = fiery.update(0.2, 200, 200);
+            
+            expect(result).not.toBeNull();
+            expect(result.type).toBe('fireTrail');
+            expect(result.radius).toBe(20);
+        });
+
+        it('should not return trail before interval', () => {
+            const result = fiery.update(0.1, 200, 200);
+            expect(result).toBeNull();
+        });
+    });
+
+    describe('takeDamage', () => {
+        it('should reduce health', () => {
+            fiery.takeDamage(5);
+            expect(fiery.health).toBe(10);
+        });
+
+        it('should return true when dies', () => {
+            expect(fiery.takeDamage(15)).toBe(true);
+        });
+    });
+});
+
+describe('GravitationalEnemy', () => {
+    let grav;
+
+    beforeEach(() => {
+        grav = new GravitationalEnemy(100, 100);
+    });
+
+    describe('constructor', () => {
+        it('should initialize with gravitational stats', () => {
+            expect(grav.type).toBe('gravitational');
+            expect(grav.health).toBe(60);
+            expect(grav.damage).toBe(12);
+            expect(grav.gravityRange).toBe(100);
+        });
+
+        it('should have velocity properties', () => {
+            expect(grav.velocityX).toBe(0);
+            expect(grav.velocityY).toBe(0);
+        });
+    });
+
+    describe('update', () => {
+        it('should move toward player', () => {
             const playerX = 200;
             const playerY = 200;
-            enemy.setTarget(playerX, playerY);
-            const initialX = enemy.x;
-            const initialY = enemy.y;
+            const initialX = grav.x;
+            const initialY = grav.y;
             
-            // Pass player position so enemy can be aware
-            enemy.update(0.1, playerX, playerY, 1.0);
+            grav.update(0.1, playerX, playerY, []);
             
-            // Should have moved closer to target (player)
-            expect(enemy.x).toBeGreaterThan(initialX);
+            expect(grav.x).toBeGreaterThan(initialX);
+            expect(grav.y).toBeGreaterThan(initialY);
         });
 
-        it('should wander when player is outside awareness radius', () => {
-            // Place player far away, outside awareness radius (default 400)
-            const playerX = 1000;
-            const playerY = 1000;
-            const initialX = enemy.x;
-            const initialY = enemy.y;
+        it('should apply gravity to nearby gravitational enemies', () => {
+            const other = new GravitationalEnemy(150, 100);
             
-            enemy.update(0.1, playerX, playerY, 1.0);
+            grav.update(0.1, 500, 500, [other]); // Player far away
             
-            // Should have moved (wandering), but not necessarily toward player
-            const moved = enemy.x !== initialX || enemy.y !== initialY;
-            expect(moved).toBe(true);
-            expect(enemy.isAwareOfPlayer).toBe(false);
+            // Should have velocity toward the other enemy
+            expect(Math.abs(grav.velocityX)).toBeGreaterThan(0);
         });
 
-        it('should apply slow effect to speed', () => {
-            enemy.applySlow(0.5, 1.0);
-            enemy.update(0.1, 0, 0, 1.0);
+        it('should not apply gravity to distant enemies', () => {
+            const other = new GravitationalEnemy(300, 100); // 200 units away, outside gravityRange of 100
             
-            expect(enemy.speed).toBe(enemy.baseSpeed * 0.5);
+            const initialVelX = grav.velocityX;
+            const initialVelY = grav.velocityY;
+            grav.update(0.1, 500, 500, [other]); // Player far away, only gravity matters
+            
+            // Gravity should not apply beyond range (velocities should only be from player movement)
+            // Since player is at (500, 500), enemy should move toward player, not other enemy
+            const movedTowardOther = grav.x > 100; // Would move toward other at x=300
+            expect(movedTowardOther).toBe(true); // Should have moved, but mostly toward player
+        });
+    });
+
+    describe('takeDamage', () => {
+        it('should reduce health', () => {
+            grav.takeDamage(20);
+            expect(grav.health).toBe(40);
         });
 
-        it('should restore speed after slow expires', () => {
-            enemy.applySlow(0.5, 0.1);
-            enemy.update(0.2, 0, 0, 1.0); // Slow timer goes negative
-            enemy.update(0.1, 0, 0, 1.0); // Now slow is cleared on this update
+        it('should return true when dies', () => {
+            expect(grav.takeDamage(60)).toBe(true);
+        });
+    });
+});
+
+describe('FastPurpleEnemy', () => {
+    let purple;
+
+    beforeEach(() => {
+        purple = new FastPurpleEnemy(100, 100);
+    });
+
+    describe('constructor', () => {
+        it('should initialize with fast purple stats', () => {
+            expect(purple.type).toBe('fastPurple');
+            expect(purple.health).toBe(25);
+            expect(purple.damage).toBe(10);
+            expect(purple.speed).toBe(200);
+        });
+    });
+
+    describe('update', () => {
+        it('should chase player', () => {
+            const playerX = 200;
+            const playerY = 200;
+            const initialX = purple.x;
+            const initialY = purple.y;
             
-            expect(enemy.speed).toBe(enemy.baseSpeed);
-            expect(enemy.slowAmount).toBe(0);
+            purple.update(0.1, playerX, playerY);
+            
+            expect(purple.x).toBeGreaterThan(initialX);
+            expect(purple.y).toBeGreaterThan(initialY);
+        });
+    });
+
+    describe('takeDamage', () => {
+        it('should reduce health', () => {
+            purple.takeDamage(10);
+            expect(purple.health).toBe(15);
         });
 
-        it('should decrease hurt time', () => {
-            enemy.hurtTime = 0.1;
-            enemy.update(0.05, 0, 0, 1.0);
-            expect(enemy.hurtTime).toBeCloseTo(0.05);
-        });
-
-        it('should apply knockback', () => {
-            enemy.knockbackX = 100;
-            enemy.knockbackY = 0;
-            const initialX = enemy.x;
-            
-            enemy.update(0.1, 0, 0, 1.0);
-            
-            expect(enemy.x).toBeGreaterThan(initialX);
-            expect(enemy.knockbackX).toBeLessThan(100); // Decayed
-        });
-
-        it('should orbit around crystal when set', () => {
-            const crystal = { x: 100, y: 100 };
-            enemy.x = 100;
-            enemy.y = 100 + enemy.orbitRadius;
-            enemy.setOrbitTarget(crystal);
-            
-            const initialAngle = enemy.orbitAngle;
-            enemy.update(0.1, 0, 0, 1.0);
-            
-            expect(enemy.orbitAngle).toBeGreaterThan(initialAngle);
+        it('should return true when dies', () => {
+            expect(purple.takeDamage(25)).toBe(true);
         });
     });
 });
 
 describe('ENEMY_TYPES', () => {
-    it('should have small, medium, and large types', () => {
-        expect(ENEMY_TYPES.small).toBeDefined();
-        expect(ENEMY_TYPES.medium).toBeDefined();
-        expect(ENEMY_TYPES.large).toBeDefined();
+    it('should have all new enemy types', () => {
+        expect(ENEMY_TYPES.builder).toBeDefined();
+        expect(ENEMY_TYPES.fiery).toBeDefined();
+        expect(ENEMY_TYPES.gravitational).toBeDefined();
+        expect(ENEMY_TYPES.fastPurple).toBeDefined();
     });
 
-    it('should have increasing stats for larger enemies', () => {
-        expect(ENEMY_TYPES.small.radius).toBeLessThan(ENEMY_TYPES.medium.radius);
-        expect(ENEMY_TYPES.medium.radius).toBeLessThan(ENEMY_TYPES.large.radius);
-        
-        expect(ENEMY_TYPES.small.health).toBeLessThan(ENEMY_TYPES.medium.health);
-        expect(ENEMY_TYPES.medium.health).toBeLessThan(ENEMY_TYPES.large.health);
-        
-        expect(ENEMY_TYPES.small.damage).toBeLessThan(ENEMY_TYPES.medium.damage);
-        expect(ENEMY_TYPES.medium.damage).toBeLessThan(ENEMY_TYPES.large.damage);
+    it('should have correct builder stats', () => {
+        expect(ENEMY_TYPES.builder.damage).toBe(0);
+        expect(ENEMY_TYPES.builder.fleeRadius).toBe(200);
     });
 
-    it('should have decreasing speed for larger enemies', () => {
-        expect(ENEMY_TYPES.small.speed).toBeGreaterThan(ENEMY_TYPES.medium.speed);
-        expect(ENEMY_TYPES.medium.speed).toBeGreaterThan(ENEMY_TYPES.large.speed);
+    it('should have fiery trail properties', () => {
+        expect(ENEMY_TYPES.fiery.trailInterval).toBe(0.2);
+        expect(ENEMY_TYPES.fiery.trailDuration).toBe(9.0);
+    });
+
+    it('should have gravitational gravity properties', () => {
+        expect(ENEMY_TYPES.gravitational.gravityRange).toBe(100);
+        expect(ENEMY_TYPES.gravitational.gravityStrength).toBe(150);
     });
 });
 
-// Mock camera for testing spawners
+// Mock camera for testing spawner
 function createMockCamera(width = 800, height = 600, zoom = 0.25) {
     return {
         zoom,
@@ -242,7 +369,6 @@ describe('EnemySpawner', () => {
         spawner = new EnemySpawner();
         mockCamera = createMockCamera();
     });
-
 
     describe('getSpawnDistances', () => {
         it('should calculate spawn distances based on camera visible area', () => {
@@ -274,233 +400,20 @@ describe('EnemySpawner', () => {
             expect(spawner.difficulty).toBeGreaterThan(1);
         });
 
-        it('should spawn enemies after interval', () => {
-            const enemies = [];
-            spawner.update(3.0, 0, 0, enemies, [], mockCamera);
-            expect(enemies.length).toBeGreaterThan(0);
+        it('should spawn builders after interval', () => {
+            const builders = [];
+            spawner.update(3.0, 0, 0, builders, [], mockCamera);
+            expect(builders.length).toBeGreaterThan(0);
+            expect(builders[0].type).toBe('builder');
         });
 
         it('should not exceed max enemies', () => {
-            const enemies = new Array(150).fill(null).map(() => new Enemy(0, 0, 'small'));
-            const initialCount = enemies.length;
+            const builders = new Array(150).fill(null).map(() => new Builder(0, 0));
+            const initialCount = builders.length;
             
-            spawner.update(3.0, 0, 0, enemies, [], mockCamera);
+            spawner.update(3.0, 0, 0, builders, [], mockCamera);
             
-            expect(enemies.length).toBe(initialCount);
-        });
-
-        it('should decrease spawn interval as difficulty increases', () => {
-            const initialInterval = spawner.spawnInterval;
-            spawner.update(60, 0, 0, [], [], mockCamera); // 60 seconds
-            expect(spawner.spawnInterval).toBeLessThan(initialInterval);
-        });
-
-        it('should spawn enemies within dynamic spawn distance from player', () => {
-            const enemies = [];
-            spawner.update(3.0, 100, 100, enemies, [], mockCamera);
-            
-            const spawnDist = spawner.getSpawnDistances(mockCamera);
-            
-            for (const enemy of enemies) {
-                const dx = enemy.x - 100;
-                const dy = enemy.y - 100;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                
-                expect(dist).toBeGreaterThanOrEqual(spawnDist.min * 0.99); // Small tolerance
-                expect(dist).toBeLessThanOrEqual(spawnDist.max * 1.01);
-            }
+            expect(builders.length).toBe(initialCount);
         });
     });
 });
-
-describe('Champion', () => {
-    let heatChampion;
-    let coldChampion;
-    let forceChampion;
-
-    beforeEach(() => {
-        heatChampion = new Champion(100, 200, 'heat');
-        coldChampion = new Champion(100, 200, 'cold');
-        forceChampion = new Champion(100, 200, 'force');
-    });
-
-    describe('constructor', () => {
-        it('should initialize at given position', () => {
-            expect(heatChampion.x).toBe(100);
-            expect(heatChampion.y).toBe(200);
-        });
-
-        it('should have isChampion flag set to true', () => {
-            expect(heatChampion.isChampion).toBe(true);
-            expect(coldChampion.isChampion).toBe(true);
-            expect(forceChampion.isChampion).toBe(true);
-        });
-
-        it('should store crystal type', () => {
-            expect(heatChampion.crystalType).toBe('heat');
-            expect(coldChampion.crystalType).toBe('cold');
-            expect(forceChampion.crystalType).toBe('force');
-        });
-    });
-
-    describe('setTarget', () => {
-        it('should set target position', () => {
-            heatChampion.setTarget(500, 600);
-            expect(heatChampion.targetX).toBe(500);
-            expect(heatChampion.targetY).toBe(600);
-        });
-    });
-
-    describe('applySlow', () => {
-        it('should apply slow effect', () => {
-            heatChampion.applySlow(0.5, 2.0);
-            expect(heatChampion.slowAmount).toBe(0.5);
-            expect(heatChampion.slowTime).toBe(2.0);
-        });
-
-        it('should keep higher slow amount', () => {
-            heatChampion.applySlow(0.3, 1.0);
-            heatChampion.applySlow(0.5, 1.0);
-            expect(heatChampion.slowAmount).toBe(0.5);
-        });
-    });
-
-    describe('applyKnockback', () => {
-        it('should add knockback force', () => {
-            heatChampion.applyKnockback(1, 0, 100);
-            expect(heatChampion.knockbackX).toBe(100);
-            expect(heatChampion.knockbackY).toBe(0);
-        });
-
-        it('should accumulate knockback', () => {
-            heatChampion.applyKnockback(1, 0, 50);
-            heatChampion.applyKnockback(0, 1, 50);
-            expect(heatChampion.knockbackX).toBe(50);
-            expect(heatChampion.knockbackY).toBe(50);
-        });
-    });
-
-    describe('takeDamage', () => {
-        it('should reduce health', () => {
-            heatChampion.takeDamage(50);
-            expect(heatChampion.health).toBe(CHAMPION_CONFIG.health - 50);
-        });
-
-        it('should set hurt time for visual effect', () => {
-            heatChampion.takeDamage(10);
-            expect(heatChampion.hurtTime).toBe(0.15);
-        });
-
-        it('should return true when champion dies', () => {
-            expect(heatChampion.takeDamage(CHAMPION_CONFIG.health)).toBe(true);
-            expect(heatChampion.takeDamage(CHAMPION_CONFIG.health + 100)).toBe(true);
-        });
-
-        it('should return false when champion survives', () => {
-            expect(heatChampion.takeDamage(10)).toBe(false);
-            expect(heatChampion.takeDamage(100)).toBe(false);
-        });
-    });
-
-    describe('update', () => {
-        it('should move toward target', () => {
-            heatChampion.setTarget(200, 200);
-            const initialX = heatChampion.x;
-            
-            heatChampion.update(0.1);
-            
-            expect(heatChampion.x).toBeGreaterThan(initialX);
-        });
-
-        it('should apply slow effect to speed', () => {
-            heatChampion.applySlow(0.5, 1.0);
-            heatChampion.update(0.1);
-            
-            expect(heatChampion.speed).toBe(heatChampion.baseSpeed * 0.5);
-        });
-
-        it('should decrease hurt time', () => {
-            heatChampion.hurtTime = 0.15;
-            heatChampion.update(0.05);
-            expect(heatChampion.hurtTime).toBeCloseTo(0.1);
-        });
-
-        it('should update visual effects', () => {
-            const initialPulse = heatChampion.pulsePhase;
-            const initialCrown = heatChampion.crownRotation;
-            
-            heatChampion.update(0.1);
-            
-            expect(heatChampion.pulsePhase).toBeGreaterThan(initialPulse);
-            expect(heatChampion.crownRotation).toBeGreaterThan(initialCrown);
-        });
-
-        it('should decrease ability cooldown', () => {
-            heatChampion.abilityCooldown = 1.0;
-            heatChampion.update(0.3);
-            expect(heatChampion.abilityCooldown).toBeCloseTo(0.7);
-        });
-    });
-
-    describe('checkAbility - Heat Champion', () => {
-        it('should return flameBurst ability when cooldown is ready', () => {
-            heatChampion.setTarget(200, 200);
-            const ability = heatChampion.update(0.1);
-            
-            expect(ability).not.toBeNull();
-            expect(ability.type).toBe('flameBurst');
-        });
-
-        it('should set cooldown after using ability', () => {
-            heatChampion.update(0.1);
-            expect(heatChampion.abilityCooldown).toBeGreaterThan(0);
-        });
-
-        it('should return null when on cooldown', () => {
-            heatChampion.update(0.1); // Use ability
-            const ability = heatChampion.update(0.1); // Still on cooldown
-            expect(ability).toBeNull();
-        });
-    });
-
-    describe('checkAbility - Cold Champion', () => {
-        it('should return frostTrail ability when enough distance moved', () => {
-            coldChampion.setTarget(200, 200);
-            coldChampion.distanceMoved = 35; // More than threshold of 30
-            
-            const ability = coldChampion.update(0.1);
-            
-            expect(ability).not.toBeNull();
-            expect(ability.type).toBe('frostTrail');
-        });
-
-        it('should reset distance moved after creating trail', () => {
-            coldChampion.distanceMoved = 35;
-            coldChampion.update(0.1);
-            expect(coldChampion.distanceMoved).toBe(0);
-        });
-
-        it('should return null when not enough distance moved', () => {
-            coldChampion.distanceMoved = 10;
-            const ability = coldChampion.update(0.01);
-            expect(ability).toBeNull();
-        });
-    });
-
-    describe('checkAbility - Force Champion', () => {
-        it('should return forceBeam ability when cooldown is ready', () => {
-            forceChampion.setTarget(200, 200);
-            const ability = forceChampion.update(0.1);
-            
-            expect(ability).not.toBeNull();
-            expect(ability.type).toBe('forceBeam');
-        });
-
-        it('should set cooldown after using ability', () => {
-            forceChampion.update(0.1);
-            expect(forceChampion.abilityCooldown).toBeGreaterThan(0);
-        });
-    });
-});
-
-

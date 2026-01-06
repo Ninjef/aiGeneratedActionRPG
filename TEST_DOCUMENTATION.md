@@ -31,8 +31,8 @@ npm run test:coverage
 | `tests/collision.test.js` | 19 | Collision detection algorithms |
 | `tests/camera.test.js` | 24 | Camera coordinate transforms and zoom |
 | `tests/player.test.js` | 39 | Player state, movement, damage, powers |
-| `tests/enemy.test.js` | 75 | Enemy behavior, wandering AI, spawner, difficulty, Champion |
-| **Total** | **185** | |
+| `tests/enemy.test.js` | 46 | Builder, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, EnemySpawner |
+| **Total** | **152** | |
 
 ## Test Structure
 
@@ -219,7 +219,7 @@ describe('takeDamage', () => {
 
 ## enemy.test.js
 
-Tests for `js/enemy.js` - enemy behavior, types, spawning system, and Champion enemies.
+Tests for `js/enemy.js` - Builder behavior, SpawnBlock mechanics, and specialized enemy types (FieryEnemy, GravitationalEnemy, FastPurpleEnemy).
 
 ### Mock Camera for Spawner Tests
 
@@ -242,91 +242,98 @@ function createMockCamera(width = 800, height = 600, zoom = 0.25) {
 
 ### Classes Tested
 
-#### Enemy Class
+#### Builder Class
 
 | Method | Tests | What's Verified |
 |--------|-------|-----------------|
-| `constructor` | 5 | Position, stats by type, slow init, orbit init, aggression type |
-| `setTarget(x, y)` | 1 | Target position setting |
-| `setOrbitTarget/clearOrbitTarget` | 2 | Crystal orbit behavior |
-| `applySlow(amount, duration)` | 4 | Slow application, max value tracking |
-| `applyKnockback(dx, dy, force)` | 3 | Knockback force, accumulation |
-| `takeDamage(amount)` | 4 | Health reduction, death detection, hurt time |
-| `update(dt, playerX, playerY, aggroMod)` | 7 | Movement, awareness, wandering, slow effect, knockback, orbiting |
+| `constructor` | 3 | Position, builder stats (no damage), flee radius |
+| `takeDamage(amount)` | 3 | Health reduction, death detection |
+| `update(dt, playerX, playerY, crystals)` | 3 | Flee from player, move toward crystal, wander |
+
+#### SpawnBlock Class
+
+| Method | Tests | What's Verified |
+|--------|-------|-----------------|
+| `constructor` | 4 | Position, crystal type storage, 250 HP, spawn intervals by type |
+| `takeDamage(amount)` | 3 | Health reduction, destruction detection |
+| `update(dt)` | 3 | Spawn info after interval, no spawn before interval, correct enemy types/counts |
+
+#### FieryEnemy Class
+
+| Method | Tests | What's Verified |
+|--------|-------|-----------------|
+| `constructor` | 1 | Fiery stats (fast, low HP) |
+| `update(dt, playerX, playerY)` | 2 | Direction changes (erratic movement), fire trail creation |
+| `takeDamage(amount)` | 2 | Health reduction, death detection |
+
+#### GravitationalEnemy Class
+
+| Method | Tests | What's Verified |
+|--------|-------|-----------------|
+| `constructor` | 2 | Gravitational stats, velocity properties |
+| `update(dt, playerX, playerY, others)` | 3 | Move toward player, apply gravity to nearby enemies, no gravity at distance |
+| `takeDamage(amount)` | 2 | Health reduction, death detection |
+
+#### FastPurpleEnemy Class
+
+| Method | Tests | What's Verified |
+|--------|-------|-----------------|
+| `constructor` | 1 | Fast purple stats |
+| `update(dt, playerX, playerY)` | 1 | Chase player behavior |
+| `takeDamage(amount)` | 2 | Health reduction, death detection |
 
 #### ENEMY_TYPES
 
 | Test | What's Verified |
 |------|-----------------|
-| Type existence | small, medium, large types exist |
-| Stat scaling | Larger enemies have more health/damage, less speed |
+| Type existence | builder, fiery, gravitational, fastPurple types exist |
+| Builder stats | No damage (0), flee radius (200) |
+| Fiery trail properties | Trail interval (0.2s), duration (9.0s) |
+| Gravitational gravity properties | Gravity range (100), strength (150) |
 
 #### EnemySpawner Class
 
 | Method | Tests | What's Verified |
 |--------|-------|-----------------|
-| `constructor` | 1 | Default values (1.5s interval, 150 max enemies) |
+| `constructor` | - | Implicitly tested in update tests |
 | `getSpawnDistances(camera)` | 2 | Dynamic distance calculation, zoom scaling |
-| `update(...)` | 6 | Game time, difficulty, spawning (2-5 per spawn), max enemies (150) |
-
-#### Champion Class
-
-| Method | Tests | What's Verified |
-|--------|-------|-----------------|
-| `constructor` | 10 | Position, isChampion flag, stats, crystal type config |
-| `setTarget(x, y)` | 1 | Target position setting |
-| `applySlow(amount, duration)` | 2 | Slow application, max value tracking |
-| `applyKnockback(dx, dy, force)` | 2 | Knockback force, accumulation |
-| `takeDamage(amount)` | 4 | Health reduction, death detection, hurt time |
-| `update(dt)` | 5 | Movement, slow effect, visual effects, cooldown |
-| `checkAbility - Heat` | 3 | Flame Burst ability, cooldown, null when on cooldown |
-| `checkAbility - Cold` | 3 | Frost Trail based on distance moved, reset distance |
-| `checkAbility - Force` | 2 | Force Beam ability, cooldown after use |
-
-#### CHAMPION_CONFIG
-
-| Test | What's Verified |
-|------|-----------------|
-| Base stats | radius, speed (140), health, damage, xp values |
-| Heat type | color, glowColor, ability name, cooldown, projectile count |
-| Cold type | color, glowColor, trail radius (30s duration), slow amount, speed multiplier (1.5x) |
-| Force type | color, glowColor, beam piercing, knockback |
-
-#### CHAMPION_FUSION_THRESHOLD
-
-| Test | What's Verified |
-|------|-----------------|
-| Value | Equals 6 (configurable threshold for faster fusion) |
+| `update(...)` | 4 | Game time tracking, difficulty increase, builder spawning, max enemy cap |
 
 ### Example Test
 
 ```javascript
-describe('getSpawnDistances', () => {
-    it('should return larger distances for more zoomed out camera', () => {
-        const zoomedOut = createMockCamera(800, 600, 0.1);
-        const zoomedIn = createMockCamera(800, 600, 1.0);
+describe('SpawnBlock', () => {
+    it('should spawn correct enemy types', () => {
+        const heatBlock = new SpawnBlock(0, 0, 'heat');
+        const coldBlock = new SpawnBlock(0, 0, 'cold');
+        const forceBlock = new SpawnBlock(0, 0, 'force');
         
-        const distOut = spawner.getSpawnDistances(zoomedOut);
-        const distIn = spawner.getSpawnDistances(zoomedIn);
+        expect(heatBlock.update(5.0).enemyType).toBe('fiery');
+        expect(heatBlock.update(5.0).count).toBe(5);
         
-        expect(distOut.min).toBeGreaterThan(distIn.min);
-        expect(distOut.max).toBeGreaterThan(distIn.max);
+        expect(coldBlock.update(5.0).enemyType).toBe('gravitational');
+        expect(coldBlock.update(5.0).count).toBe(3);
+        
+        expect(forceBlock.update(8.0).enemyType).toBe('fastPurple');
+        expect(forceBlock.update(8.0).count).toBe(5);
     });
 });
 ```
 
-### Example Champion Test
+### Example Builder Test
 
 ```javascript
-describe('checkAbility - Heat Champion', () => {
-    it('should return flameBurst ability when cooldown is ready', () => {
-        heatChampion.setTarget(200, 200);
-        const ability = heatChampion.update(0.1);
+describe('Builder', () => {
+    it('should flee from player when close', () => {
+        const builder = new Builder(100, 200);
+        const playerX = 150;
+        const playerY = 200;
+        const initialX = builder.x;
         
-        expect(ability).not.toBeNull();
-        expect(ability.type).toBe('flameBurst');
-        expect(ability.damage).toBe(CHAMPION_CONFIG.types.heat.abilityDamage);
-        expect(ability.count).toBe(CHAMPION_CONFIG.types.heat.projectileCount);
+        builder.update(0.1, playerX, playerY, []);
+        
+        // Should have moved away from player (x decreased)
+        expect(builder.x).toBeLessThan(initialX);
     });
 });
 ```
@@ -347,10 +354,12 @@ describe('checkAbility - Heat Champion', () => {
 1. **Rendering** - Canvas drawing operations (would require canvas mocking)
 2. **DOM Manipulation** - UI class (would require DOM environment)
 3. **Input Handling** - Keyboard events
-4. **Game Loop** - Main game orchestration
+4. **Game Loop Integration** - Full game orchestration with all systems
 5. **Status Effects** - StatusEffect and StatusEffectManager classes (pure logic, could be tested)
 6. **Passive Upgrades** - PassiveUpgrades module (pure logic, could be tested)
 7. **XP System** - Player XP and leveling mechanics (could be tested)
+8. **Fire Trail Effects** - AreaEffect instances created by FieryEnemies
+9. **Crystal Dropping** - Spawn block → crystal conversion on destruction
 
 ### Mocking Strategy
 
