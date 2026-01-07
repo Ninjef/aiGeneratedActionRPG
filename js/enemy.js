@@ -12,9 +12,59 @@ export class SpriteCache {
     // Initialize all enemy sprites
     init() {
         this.createBuilderSprite();
+        this.createFighterSprite();
         this.createFierySprite();
         this.createGravitationalSprite();
         this.createFastPurpleSprite();
+    }
+    
+    createFighterSprite() {
+        const size = this.baseSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const center = size / 2;
+        const r = size / 2 - 4;
+        
+        // Aggressive aura glow
+        const glowGradient = ctx.createRadialGradient(
+            center, center, r * 0.5,
+            center, center, r * 1.6
+        );
+        glowGradient.addColorStop(0, 'rgba(46, 204, 113, 0.5)');
+        glowGradient.addColorStop(0.6, 'rgba(46, 204, 113, 0.2)');
+        glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glowGradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Main body (green)
+        ctx.fillStyle = ENEMY_TYPES.fighter.color;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Dark outline
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Inner highlight gradient
+        const gradient = ctx.createRadialGradient(
+            center - r * 0.3, center - r * 0.3, 0,
+            center, center, r
+        );
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
+        gradient.addColorStop(0.5, 'rgba(39, 174, 96, 0.2)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        this.sprites.set('fighter', canvas);
     }
     
     createBuilderSprite() {
@@ -205,6 +255,15 @@ export const ENEMY_TYPES = {
         color: '#808080',  // Grey
         xp: 5,
         fleeRadius: 200  // Distance to flee from player
+    },
+    fighter: {
+        radius: 14,
+        speed: 140,
+        health: 40,
+        damage: 10,
+        color: '#2ecc71',  // Green
+        xp: 12,
+        aggroRadius: 800  // Very far aggro distance
     },
     fiery: {
         radius: 8,
@@ -468,6 +527,195 @@ export class Builder {
 
 // For backward compatibility, keep Enemy as an alias to Builder
 export const Enemy = Builder;
+
+// Fighter class - aggressive green enemies that chase the player from far away
+export class Fighter {
+    constructor(x, y) {
+        const config = ENEMY_TYPES.fighter;
+        
+        this.x = x;
+        this.y = y;
+        this.type = 'fighter';
+        this.radius = config.radius;
+        this.baseSpeed = config.speed;
+        this.speed = config.speed;
+        this.maxHealth = config.health;
+        this.health = config.health;
+        this.damage = config.damage;
+        this.color = config.color;
+        this.xp = config.xp;
+        this.aggroRadius = config.aggroRadius;
+        
+        // Slow effect
+        this.slowAmount = 0;
+        this.slowTime = 0;
+        
+        // Knockback
+        this.knockbackX = 0;
+        this.knockbackY = 0;
+        
+        // Visual
+        this.hurtTime = 0;
+        
+        // Direction tracking for visuals
+        this.facingAngle = Math.random() * Math.PI * 2;
+        
+        // Wandering AI state (when player not in aggro range)
+        this.wanderAngle = Math.random() * Math.PI * 2;
+        this.wanderTimer = 0;
+        this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+    }
+
+    applySlow(amount, duration) {
+        this.slowAmount = Math.max(this.slowAmount, amount);
+        this.slowTime = Math.max(this.slowTime, duration);
+    }
+
+    applyKnockback(dirX, dirY, force) {
+        this.knockbackX += dirX * force;
+        this.knockbackY += dirY * force;
+    }
+
+    takeDamage(amount) {
+        this.health -= amount;
+        this.hurtTime = 0.1;
+        return this.health <= 0;
+    }
+
+    update(dt, playerX, playerY) {
+        // Update slow
+        if (this.slowTime > 0) {
+            this.slowTime -= dt;
+            this.speed = this.baseSpeed * (1 - this.slowAmount);
+        } else {
+            this.slowAmount = 0;
+            this.speed = this.baseSpeed;
+        }
+        
+        // Apply knockback
+        if (Math.abs(this.knockbackX) > 0.1 || Math.abs(this.knockbackY) > 0.1) {
+            this.x += this.knockbackX * dt * 10;
+            this.y += this.knockbackY * dt * 10;
+            this.knockbackX *= 0.9;
+            this.knockbackY *= 0.9;
+        }
+        
+        const distToPlayer = distance(this.x, this.y, playerX, playerY);
+        
+        // If player is within aggro range, chase them
+        if (distToPlayer < this.aggroRadius) {
+            const dx = playerX - this.x;
+            const dy = playerY - this.y;
+            const dir = normalize(dx, dy);
+            
+            this.x += dir.x * this.speed * dt;
+            this.y += dir.y * this.speed * dt;
+            
+            // Update facing direction
+            this.facingAngle = angle(this.x, this.y, playerX, playerY);
+        } else {
+            // Wander randomly when player not in range
+            this.wanderTimer += dt;
+            if (this.wanderTimer >= this.wanderChangeInterval) {
+                this.wanderTimer = 0;
+                this.wanderAngle = Math.random() * Math.PI * 2;
+                this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+            }
+            
+            const wanderSpeed = this.speed * 0.4;
+            this.x += Math.cos(this.wanderAngle) * wanderSpeed * dt;
+            this.y += Math.sin(this.wanderAngle) * wanderSpeed * dt;
+            
+            this.facingAngle = this.wanderAngle;
+        }
+        
+        // Update hurt visual
+        if (this.hurtTime > 0) {
+            this.hurtTime -= dt;
+        }
+    }
+
+    render(ctx, camera) {
+        const screen = camera.worldToScreen(this.x, this.y);
+        const scale = camera.zoom;
+        const r = this.radius * scale;
+        
+        ctx.save();
+        
+        // Slow effect visual
+        if (this.slowTime > 0) {
+            ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r + 5 * scale, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Use cached sprite if available and not hurt
+        const sprite = spriteCache.getSprite('fighter');
+        if (sprite && !this.hurtTime && !simplifiedRendering) {
+            const spriteScale = (r * 2 + 8) / spriteCache.baseSize;
+            ctx.drawImage(
+                sprite,
+                screen.x - (spriteCache.baseSize * spriteScale) / 2,
+                screen.y - (spriteCache.baseSize * spriteScale) / 2,
+                spriteCache.baseSize * spriteScale,
+                spriteCache.baseSize * spriteScale
+            );
+        } else {
+            // Fallback/simplified rendering (or hurt state)
+            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            ctx.fillStyle = baseColor;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.lineWidth = 2 * scale;
+            ctx.stroke();
+        }
+        
+        // Angry eyes pointing toward facing direction
+        if (!simplifiedRendering) {
+            const eyeOffset = r * 0.35;
+            const eyeSpread = r * 0.28;
+            const eyeSize = r * 0.18;
+            
+            const leftEyeX = screen.x + Math.cos(this.facingAngle) * eyeOffset - Math.sin(this.facingAngle) * eyeSpread;
+            const leftEyeY = screen.y + Math.sin(this.facingAngle) * eyeOffset + Math.cos(this.facingAngle) * eyeSpread;
+            const rightEyeX = screen.x + Math.cos(this.facingAngle) * eyeOffset + Math.sin(this.facingAngle) * eyeSpread;
+            const rightEyeY = screen.y + Math.sin(this.facingAngle) * eyeOffset - Math.cos(this.facingAngle) * eyeSpread;
+            
+            // Angry eye color (red when hurt, dark when normal)
+            ctx.fillStyle = this.hurtTime > 0 ? '#ff0000' : '#1a472a';
+            ctx.beginPath();
+            ctx.arc(leftEyeX, leftEyeY, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(rightEyeX, rightEyeY, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.restore();
+        
+        // Health bar (only if damaged)
+        if (this.health < this.maxHealth) {
+            this.renderHealthBar(ctx, screen, scale);
+        }
+    }
+
+    renderHealthBar(ctx, screen, scale) {
+        const barWidth = this.radius * 2 * scale;
+        const barHeight = 4 * scale;
+        const barY = screen.y - this.radius * scale - 8 * scale;
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth, barHeight);
+        
+        const healthPercent = this.health / this.maxHealth;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
+    }
+}
 
 // SpawnBlock class - destructible blocks that spawn specialized enemies
 export class SpawnBlock {
@@ -1117,9 +1365,15 @@ export class EnemySpawner {
     constructor() {
         this.spawnTimer = 0;
         this.spawnInterval = 1.5; // Faster spawning (was 2.0)
-        this.maxEnemies = 150; // More enemies (was 100)
+        this.maxBuilders = 150; // Max builders
+        this.maxFighters = 80; // Max fighters
         this.difficulty = 1;
         this.gameTime = 0;
+        
+        // Fighter spawning (separate timer, starts spawning after some time)
+        this.fighterSpawnTimer = 0;
+        this.fighterSpawnInterval = 3.0; // Initial interval (slower than builders)
+        this.fighterSpawnDelay = 5.0; // Start spawning fighters after 5 seconds
     }
 
     // Calculate spawn distance based on visible screen diagonal
@@ -1135,20 +1389,29 @@ export class EnemySpawner {
         };
     }
 
-    update(dt, playerX, playerY, enemies, crystals, camera) {
+    update(dt, playerX, playerY, builders, fighters, crystals, camera) {
         this.gameTime += dt;
+        
+        // Debug: verify fighters array is passed correctly
+        if (Math.floor(this.gameTime) % 5 === 0 && Math.floor(this.gameTime) !== this._lastLogTime) {
+            this._lastLogTime = Math.floor(this.gameTime);
+            console.log('EnemySpawner update - gameTime:', this.gameTime.toFixed(1), 
+                        'fighterDelay:', this.fighterSpawnDelay, 
+                        'fighters array length:', fighters ? fighters.length : 'UNDEFINED');
+        }
         
         // Increase difficulty over time
         this.difficulty = 1 + Math.floor(this.gameTime / 30) * 0.5;
         this.spawnInterval = Math.max(0.3, 1.5 - this.difficulty * 0.15); // Faster ramp-up
         
+        // Get dynamic spawn distances based on camera zoom
+        const spawnDist = this.getSpawnDistances(camera);
+        
+        // Spawn builders
         this.spawnTimer += dt;
         
-        if (this.spawnTimer >= this.spawnInterval && enemies.length < this.maxEnemies) {
+        if (this.spawnTimer >= this.spawnInterval && builders.length < this.maxBuilders) {
             this.spawnTimer = 0;
-            
-            // Get dynamic spawn distances based on camera zoom
-            const spawnDist = this.getSpawnDistances(camera);
             
             // Spawn 2-5 builders based on difficulty
             const spawnCount = Math.min(5, Math.ceil(this.difficulty) + 1);
@@ -1161,8 +1424,36 @@ export class EnemySpawner {
                     spawnDist.max
                 );
                 
-                // Always spawn builders
-                enemies.push(new Builder(pos.x, pos.y));
+                builders.push(new Builder(pos.x, pos.y));
+            }
+        }
+        
+        // Spawn fighters (after delay, incrementally more over time)
+        if (this.gameTime >= this.fighterSpawnDelay) {
+            this.fighterSpawnTimer += dt;
+            
+            // Fighter spawn rate increases over time
+            const timeSinceFighterStart = this.gameTime - this.fighterSpawnDelay;
+            const fighterDifficulty = 1 + Math.floor(timeSinceFighterStart / 30) * 0.5;
+            this.fighterSpawnInterval = Math.max(1.0, 3.0 - fighterDifficulty * 0.3);
+            
+            if (this.fighterSpawnTimer >= this.fighterSpawnInterval && fighters.length < this.maxFighters) {
+                this.fighterSpawnTimer = 0;
+                
+                // Spawn 1-3 fighters based on difficulty
+                const fighterSpawnCount = Math.min(3, Math.ceil(fighterDifficulty));
+                console.log('Spawning', fighterSpawnCount, 'fighters at gameTime:', this.gameTime);
+                
+                for (let i = 0; i < fighterSpawnCount; i++) {
+                    const pos = randomPositionInRing(
+                        playerX, 
+                        playerY, 
+                        spawnDist.min, 
+                        spawnDist.max
+                    );
+                    
+                    fighters.push(new Fighter(pos.x, pos.y));
+                }
             }
         }
     }

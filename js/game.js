@@ -2,7 +2,7 @@
 
 import { Player } from './player.js';
 import { Camera } from './camera.js';
-import { Builder, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, spriteCache, setSimplifiedRendering } from './enemy.js';
+import { Builder, Fighter, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, spriteCache, setSimplifiedRendering } from './enemy.js';
 import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
 import { Projectile, AreaEffect, RingEffect } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
@@ -47,6 +47,7 @@ class Game {
     // Get total count of all enemies for performance caps
     getTotalEnemyCount() {
         return this.builders.length + 
+               this.fighters.length +
                this.spawnBlocks.length + 
                this.fieryEnemies.length + 
                this.gravitationalEnemies.length + 
@@ -98,6 +99,7 @@ class Game {
         
         // Entity arrays
         this.builders = [];
+        this.fighters = [];
         this.spawnBlocks = [];
         this.fieryEnemies = [];
         this.gravitationalEnemies = [];
@@ -238,8 +240,8 @@ class Game {
         this.camera.follow(this.player);
         this.camera.update();
         
-        // Spawn builders and crystals
-        this.enemySpawner.update(dt, this.player.x, this.player.y, this.builders, this.crystals, this.camera);
+        // Spawn builders, fighters and crystals
+        this.enemySpawner.update(dt, this.player.x, this.player.y, this.builders, this.fighters, this.crystals, this.camera);
         this.crystalSpawner.update(dt, this.player.x, this.player.y, this.crystals, this.camera);
         
         // Update crystals
@@ -250,6 +252,11 @@ class Game {
         // Update builders
         for (const builder of this.builders) {
             builder.update(dt, this.player.x, this.player.y, this.crystals);
+        }
+        
+        // Update fighters
+        for (const fighter of this.fighters) {
+            fighter.update(dt, this.player.x, this.player.y);
         }
         
         // Check builder-crystal collisions
@@ -346,6 +353,11 @@ class Game {
             builder._sourceArray = this.builders;
             builder._dead = false;
             this.spatialGrid.insert(builder);
+        }
+        for (const fighter of this.fighters) {
+            fighter._sourceArray = this.fighters;
+            fighter._dead = false;
+            this.spatialGrid.insert(fighter);
         }
         for (const block of this.spawnBlocks) {
             block._sourceArray = this.spawnBlocks;
@@ -527,6 +539,21 @@ class Game {
         // Check player collisions with all enemy types
         // Builders don't deal damage
         
+        // Fighters deal damage
+        for (const fighter of this.fighters) {
+            if (circleCollision(
+                this.player.x, this.player.y, this.player.radius,
+                fighter.x, fighter.y, fighter.radius
+            )) {
+                if (this.player.takeDamage(fighter.damage)) {
+                    const frozenArmor = this.player.powers.find(p => p.id === 'frozenArmor');
+                    if (frozenArmor) {
+                        fighter.applySlow(0.3 + frozenArmor.level * 0.1, 1.0);
+                    }
+                }
+            }
+        }
+        
         // Fiery enemies deal damage
         for (const fiery of this.fieryEnemies) {
             if (circleCollision(
@@ -655,6 +682,13 @@ class Game {
             }
         }
         
+        for (let i = this.fighters.length - 1; i >= 0; i--) {
+            const fighter = this.fighters[i];
+            if (distance(this.player.x, this.player.y, fighter.x, fighter.y) > despawnDistance) {
+                this.fighters.splice(i, 1);
+            }
+        }
+        
         for (let i = this.fieryEnemies.length - 1; i >= 0; i--) {
             const fiery = this.fieryEnemies[i];
             if (distance(this.player.x, this.player.y, fiery.x, fiery.y) > despawnDistance) {
@@ -720,6 +754,7 @@ class Game {
         // Combine all enemy arrays for power manager
         const allEnemies = [
             ...this.builders,
+            ...this.fighters,
             ...this.spawnBlocks,
             ...this.fieryEnemies,
             ...this.gravitationalEnemies,
@@ -882,6 +917,13 @@ class Game {
         for (const builder of this.builders) {
             if (this.camera.isVisible(builder.x, builder.y, builder.radius)) {
                 builder.render(ctx, this.camera);
+            }
+        }
+        
+        // Draw fighters
+        for (const fighter of this.fighters) {
+            if (this.camera.isVisible(fighter.x, fighter.y, fighter.radius)) {
+                fighter.render(ctx, this.camera);
             }
         }
         

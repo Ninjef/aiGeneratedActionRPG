@@ -152,6 +152,7 @@ All game entities share common patterns:
 |--------|---------------|--------|--------|--------|
 | Player | `x, y` | 20 | Movement, invincibility | Circle + health bar |
 | Builder | `x, y` | 15 | Flee/crystal seek/wander | Grey circle + simple eyes |
+| Fighter | `x, y` | 14 | Chase from far/wander | Green circle + angry eyes |
 | SpawnBlock | `x, y` | 30 | Spawn timer, spawning | Pulsing square + health bar |
 | FieryEnemy | `x, y` | 8 | Erratic movement, trails | Red circle + flame glow |
 | GravitationalEnemy | `x, y` | 18 | Player chase, mutual gravity | Blue circle + aura |
@@ -190,7 +191,16 @@ The game features a unique enemy spawning system where **Builder** enemies conve
 - Visual: Pulsing square with diagonal pattern
 ```
 
-**Specialized Combat Enemies**
+**Fighter Enemies (Green) - Spawned Incrementally**
+```javascript
+// Fighters spawn incrementally over time (starting at 15 seconds)
+- Behavior: Chase player from very far away (800 unit aggro)
+- Wander randomly when player not in range
+- Deal contact damage on touch
+- Stats: { radius: 14, speed: 140, health: 40, damage: 10, xp: 12 }
+```
+
+**Specialized Combat Enemies (from Spawn Blocks)**
 
 1. **Fiery Enemies (Red) - from Heat Spawn Blocks**
    - Spawn: 5 enemies every 5 seconds
@@ -358,6 +368,7 @@ A parallel progression system separate from crystal-based powers.
 
 **Gaining XP:**
 - Builders: 5 XP
+- Fighters: 12 XP
 - Fiery enemies: 15 XP
 - Gravitational enemies: 30 XP
 - Fast purple enemies: 20 XP
@@ -474,6 +485,9 @@ spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 | Crystal nova damage | 30 | `game.js` |
 | Crystal aggro radius | 350 | `crystal.js` |
 | Max builders | 150 | `enemy.js` |
+| Max fighters | 80 | `enemy.js` |
+| Fighter spawn delay | 15s | `enemy.js` |
+| Fighter aggro radius | 800 | `enemy.js` |
 | Max crystals | 15 | `crystal.js` |
 | Builder flee radius | 200 | `enemy.js` |
 | Spawn block health | 250 | `enemy.js` |
