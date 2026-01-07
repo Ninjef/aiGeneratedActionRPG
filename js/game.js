@@ -2,14 +2,14 @@
 
 import { Player } from './player.js';
 import { Camera } from './camera.js';
-import { Builder, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy } from './enemy.js';
+import { Builder, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, spriteCache, setSimplifiedRendering } from './enemy.js';
 import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
 import { Projectile, AreaEffect, RingEffect } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
 import { PowerRune } from './powerRune.js';
 import { UI } from './ui.js';
-import { circleCollision } from './collision.js';
-import { distance, angle, randomRange, randomChoice } from './utils.js';
+import { circleCollision, SpatialGrid } from './collision.js';
+import { distance, distanceSquared, angle, randomRange, randomChoice } from './utils.js';
 import { generatePassiveUpgradeOptions } from './passiveUpgrades.js';
 
 class Game {
@@ -30,12 +30,27 @@ class Game {
         this.gameTime = 0;
         this.enemiesDefeated = 0;
         
+        // Performance settings
+        this.maxTotalEnemies = 300; // Global cap on all enemy types combined
+        
+        // Initialize sprite cache for optimized rendering
+        spriteCache.init();
+        
         // Input
         this.keys = {};
         this.setupInput();
         
         // Show start screen
         this.ui.showStartScreen();
+    }
+    
+    // Get total count of all enemies for performance caps
+    getTotalEnemyCount() {
+        return this.builders.length + 
+               this.spawnBlocks.length + 
+               this.fieryEnemies.length + 
+               this.gravitationalEnemies.length + 
+               this.fastPurpleEnemies.length;
     }
 
     resizeCanvas() {
@@ -96,6 +111,9 @@ class Game {
         // Spawners
         this.enemySpawner = new EnemySpawner();
         this.crystalSpawner = new CrystalSpawner();
+        
+        // Spatial grid for efficient collision detection (cell size > largest enemy radius * 2)
+        this.spatialGrid = new SpatialGrid(100);
         
         // Power manager
         this.powerManager = new PowerManager(
@@ -254,12 +272,22 @@ class Game {
             }
         }
         
-        // Update spawn blocks and spawn enemies
+        // Update spawn blocks and spawn enemies (with global enemy cap)
         for (const block of this.spawnBlocks) {
             const spawnInfo = block.update(dt);
             if (spawnInfo) {
+                // Check if we're over the enemy cap before spawning
+                const currentTotal = this.getTotalEnemyCount();
+                if (currentTotal >= this.maxTotalEnemies) {
+                    continue; // Skip spawning if at cap
+                }
+                
+                // Limit spawn count to not exceed cap
+                const maxCanSpawn = this.maxTotalEnemies - currentTotal;
+                const actualSpawnCount = Math.min(spawnInfo.count, maxCanSpawn);
+                
                 // Spawn enemies around the block
-                for (let i = 0; i < spawnInfo.count; i++) {
+                for (let i = 0; i < actualSpawnCount; i++) {
                     const angleOffset = (i / spawnInfo.count) * Math.PI * 2;
                     const spawnDist = block.radius + 20;
                     const spawnX = spawnInfo.x + Math.cos(angleOffset) * spawnDist;
@@ -312,7 +340,36 @@ class Game {
         // Update power manager
         this.powerManager.update(dt);
         
-        // Update projectiles
+        // Rebuild spatial grid with all enemies for efficient collision detection
+        this.spatialGrid.clear();
+        for (const builder of this.builders) {
+            builder._sourceArray = this.builders;
+            builder._dead = false;
+            this.spatialGrid.insert(builder);
+        }
+        for (const block of this.spawnBlocks) {
+            block._sourceArray = this.spawnBlocks;
+            block._dead = false;
+            block._isSpawnBlock = true;
+            this.spatialGrid.insert(block);
+        }
+        for (const fiery of this.fieryEnemies) {
+            fiery._sourceArray = this.fieryEnemies;
+            fiery._dead = false;
+            this.spatialGrid.insert(fiery);
+        }
+        for (const grav of this.gravitationalEnemies) {
+            grav._sourceArray = this.gravitationalEnemies;
+            grav._dead = false;
+            this.spatialGrid.insert(grav);
+        }
+        for (const purple of this.fastPurpleEnemies) {
+            purple._sourceArray = this.fastPurpleEnemies;
+            purple._dead = false;
+            this.spatialGrid.insert(purple);
+        }
+        
+        // Update projectiles with spatial grid collision detection
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const proj = this.projectiles[i];
             if (!proj.update(dt)) {
@@ -322,84 +379,31 @@ class Game {
             
             let projHit = false;
             
-            // Check collisions with builders
-            for (let j = this.builders.length - 1; j >= 0; j--) {
-                const builder = this.builders[j];
-                if (proj.checkCollision(builder)) {
-                    const killed = builder.takeDamage(proj.damage);
+            // Get nearby enemies from spatial grid (much faster than checking all)
+            const nearby = this.spatialGrid.getNearby(proj.x, proj.y);
+            
+            for (const enemy of nearby) {
+                // Skip already dead enemies
+                if (enemy._dead) continue;
+                
+                if (proj.checkCollision(enemy)) {
+                    const killed = enemy.takeDamage(proj.damage);
                     if (killed) {
-                        this.awardXp(builder.xp);
+                        this.awardXp(enemy.xp);
                         // Create fireball explosion if killed by fireball
                         if (proj.sourceType === 'fireballPower') {
-                            this.createFireballExplosion(builder.x, builder.y);
+                            this.createFireballExplosion(enemy.x, enemy.y);
                         }
-                        this.builders.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                    if (!proj.piercing) {
-                        this.projectiles.splice(i, 1);
-                        projHit = true;
-                        break;
-                    }
-                }
-            }
-            if (projHit) continue;
-            
-            // Check collisions with spawn blocks
-            for (let j = this.spawnBlocks.length - 1; j >= 0; j--) {
-                const block = this.spawnBlocks[j];
-                if (proj.checkCollision(block)) {
-                    if (block.takeDamage(proj.damage)) {
-                        this.awardXp(block.xp);
-                        // Drop crystal when spawn block is destroyed
-                        this.crystals.push(new Crystal(block.x, block.y, block.crystalType));
-                        this.spawnBlocks.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                    if (!proj.piercing) {
-                        this.projectiles.splice(i, 1);
-                        projHit = true;
-                        break;
-                    }
-                }
-            }
-            if (projHit) continue;
-            
-            // Check collisions with fiery enemies
-            for (let j = this.fieryEnemies.length - 1; j >= 0; j--) {
-                const fiery = this.fieryEnemies[j];
-                if (proj.checkCollision(fiery)) {
-                    const killed = fiery.takeDamage(proj.damage);
-                    if (killed) {
-                        this.awardXp(fiery.xp);
-                        // Create fireball explosion if killed by fireball
-                        if (proj.sourceType === 'fireballPower') {
-                            this.createFireballExplosion(fiery.x, fiery.y);
+                        // Handle spawn block crystal drop
+                        if (enemy._isSpawnBlock) {
+                            this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
                         }
-                        this.fieryEnemies.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                    if (!proj.piercing) {
-                        this.projectiles.splice(i, 1);
-                        projHit = true;
-                        break;
-                    }
-                }
-            }
-            if (projHit) continue;
-            
-            // Check collisions with gravitational enemies
-            for (let j = this.gravitationalEnemies.length - 1; j >= 0; j--) {
-                const grav = this.gravitationalEnemies[j];
-                if (proj.checkCollision(grav)) {
-                    const killed = grav.takeDamage(proj.damage);
-                    if (killed) {
-                        this.awardXp(grav.xp);
-                        // Create fireball explosion if killed by fireball
-                        if (proj.sourceType === 'fireballPower') {
-                            this.createFireballExplosion(grav.x, grav.y);
+                        // Remove from source array
+                        const idx = enemy._sourceArray.indexOf(enemy);
+                        if (idx !== -1) {
+                            enemy._sourceArray.splice(idx, 1);
                         }
-                        this.gravitationalEnemies.splice(j, 1);
+                        enemy._dead = true;
                         this.enemiesDefeated++;
                     }
                     if (!proj.piercing) {
@@ -409,32 +413,11 @@ class Game {
                     }
                 }
             }
-            if (projHit) continue;
             
-            // Check collisions with fast purple enemies
-            for (let j = this.fastPurpleEnemies.length - 1; j >= 0; j--) {
-                const purple = this.fastPurpleEnemies[j];
-                if (proj.checkCollision(purple)) {
-                    const killed = purple.takeDamage(proj.damage);
-                    if (killed) {
-                        this.awardXp(purple.xp);
-                        // Create fireball explosion if killed by fireball
-                        if (proj.sourceType === 'fireballPower') {
-                            this.createFireballExplosion(purple.x, purple.y);
-                        }
-                        this.fastPurpleEnemies.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                    if (!proj.piercing) {
-                        this.projectiles.splice(i, 1);
-                        projHit = true;
-                        break;
-                    }
-                }
-            }
+            if (projHit) continue;
         }
         
-        // Update area effects
+        // Update area effects using spatial grid
         for (let i = this.areaEffects.length - 1; i >= 0; i--) {
             const effect = this.areaEffects[i];
             if (!effect.update(dt)) {
@@ -444,90 +427,48 @@ class Game {
             
             // Check if effect damages player (fire trails)
             if (effect.damagePlayer && effect.canDamage()) {
-                const dist = distance(effect.x, effect.y, this.player.x, this.player.y);
-                if (dist < effect.radius + this.player.radius) {
+                const distSq = distanceSquared(effect.x, effect.y, this.player.x, this.player.y);
+                const radiusSum = effect.radius + this.player.radius;
+                if (distSq < radiusSum * radiusSum) {
                     this.player.takeDamage(effect.playerDamage || effect.damage);
                 }
             }
             
-            // Apply effects to all enemy types
+            // Get nearby enemies from spatial grid
+            const nearbyEnemies = this.spatialGrid.getNearby(effect.x, effect.y);
+            
+            // Apply effects to nearby enemies
             if (effect.canDamage()) {
-                // Damage builders
-                for (let j = this.builders.length - 1; j >= 0; j--) {
-                    const builder = this.builders[j];
-                    if (effect.affectEnemy(builder)) {
-                        if (builder.takeDamage(effect.damage)) {
-                            this.awardXp(builder.xp);
-                            this.builders.splice(j, 1);
-                            this.enemiesDefeated++;
-                        }
-                    }
-                }
-                // Damage spawn blocks (but not from fire trails)
-                if (effect.type !== 'fireTrail') {
-                    for (let j = this.spawnBlocks.length - 1; j >= 0; j--) {
-                        const block = this.spawnBlocks[j];
-                        if (effect.affectEnemy(block)) {
-                            if (block.takeDamage(effect.damage)) {
-                                this.awardXp(block.xp);
-                                this.crystals.push(new Crystal(block.x, block.y, block.crystalType));
-                                this.spawnBlocks.splice(j, 1);
-                                this.enemiesDefeated++;
+                for (const enemy of nearbyEnemies) {
+                    if (enemy._dead) continue;
+                    // Skip spawn blocks for fire trails
+                    if (effect.type === 'fireTrail' && enemy._isSpawnBlock) continue;
+                    
+                    if (effect.affectEnemy(enemy)) {
+                        if (enemy.takeDamage(effect.damage)) {
+                            this.awardXp(enemy.xp);
+                            if (enemy._isSpawnBlock) {
+                                this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
                             }
-                        }
-                    }
-                }
-                // Damage fiery enemies
-                for (let j = this.fieryEnemies.length - 1; j >= 0; j--) {
-                    const fiery = this.fieryEnemies[j];
-                    if (effect.affectEnemy(fiery)) {
-                        if (fiery.takeDamage(effect.damage)) {
-                            this.awardXp(fiery.xp);
-                            this.fieryEnemies.splice(j, 1);
-                            this.enemiesDefeated++;
-                        }
-                    }
-                }
-                // Damage gravitational enemies
-                for (let j = this.gravitationalEnemies.length - 1; j >= 0; j--) {
-                    const grav = this.gravitationalEnemies[j];
-                    if (effect.affectEnemy(grav)) {
-                        if (grav.takeDamage(effect.damage)) {
-                            this.awardXp(grav.xp);
-                            this.gravitationalEnemies.splice(j, 1);
-                            this.enemiesDefeated++;
-                        }
-                    }
-                }
-                // Damage fast purple enemies
-                for (let j = this.fastPurpleEnemies.length - 1; j >= 0; j--) {
-                    const purple = this.fastPurpleEnemies[j];
-                    if (effect.affectEnemy(purple)) {
-                        if (purple.takeDamage(effect.damage)) {
-                            this.awardXp(purple.xp);
-                            this.fastPurpleEnemies.splice(j, 1);
+                            const idx = enemy._sourceArray.indexOf(enemy);
+                            if (idx !== -1) {
+                                enemy._sourceArray.splice(idx, 1);
+                            }
+                            enemy._dead = true;
                             this.enemiesDefeated++;
                         }
                     }
                 }
             } else {
-                // Still apply non-damage effects (slow, pull)
-                for (const builder of this.builders) {
-                    effect.affectEnemy(builder);
-                }
-                for (const fiery of this.fieryEnemies) {
-                    effect.affectEnemy(fiery);
-                }
-                for (const grav of this.gravitationalEnemies) {
-                    effect.affectEnemy(grav);
-                }
-                for (const purple of this.fastPurpleEnemies) {
-                    effect.affectEnemy(purple);
+                // Still apply non-damage effects (slow, pull) to nearby enemies
+                for (const enemy of nearbyEnemies) {
+                    if (enemy._dead) continue;
+                    effect.affectEnemy(enemy);
                 }
             }
         }
         
-        // Update ring effects
+        // Update ring effects using spatial grid
         for (let i = this.ringEffects.length - 1; i >= 0; i--) {
             const ring = this.ringEffects[i];
             if (!ring.update(dt)) {
@@ -535,117 +476,51 @@ class Game {
                 continue;
             }
             
-            // Check collisions with builders
-            for (let j = this.builders.length - 1; j >= 0; j--) {
-                const builder = this.builders[j];
-                if (ring.checkCollision(builder)) {
-                    if (builder.takeDamage(ring.damage)) {
-                        this.awardXp(builder.xp);
-                        this.builders.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                }
-            }
+            // Get nearby enemies from spatial grid
+            const nearbyEnemies = this.spatialGrid.getNearby(ring.x, ring.y);
             
-            // Check collisions with spawn blocks
-            for (let j = this.spawnBlocks.length - 1; j >= 0; j--) {
-                const block = this.spawnBlocks[j];
-                if (ring.checkCollision(block)) {
-                    if (block.takeDamage(ring.damage)) {
-                        this.awardXp(block.xp);
-                        this.crystals.push(new Crystal(block.x, block.y, block.crystalType));
-                        this.spawnBlocks.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                }
-            }
-            
-            // Check collisions with fiery enemies
-            for (let j = this.fieryEnemies.length - 1; j >= 0; j--) {
-                const fiery = this.fieryEnemies[j];
-                if (ring.checkCollision(fiery)) {
-                    if (fiery.takeDamage(ring.damage)) {
-                        this.awardXp(fiery.xp);
-                        this.fieryEnemies.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                }
-            }
-            
-            // Check collisions with gravitational enemies
-            for (let j = this.gravitationalEnemies.length - 1; j >= 0; j--) {
-                const grav = this.gravitationalEnemies[j];
-                if (ring.checkCollision(grav)) {
-                    if (grav.takeDamage(ring.damage)) {
-                        this.awardXp(grav.xp);
-                        this.gravitationalEnemies.splice(j, 1);
-                        this.enemiesDefeated++;
-                    }
-                }
-            }
-            
-            // Check collisions with fast purple enemies
-            for (let j = this.fastPurpleEnemies.length - 1; j >= 0; j--) {
-                const purple = this.fastPurpleEnemies[j];
-                if (ring.checkCollision(purple)) {
-                    if (purple.takeDamage(ring.damage)) {
-                        this.awardXp(purple.xp);
-                        this.fastPurpleEnemies.splice(j, 1);
+            for (const enemy of nearbyEnemies) {
+                if (enemy._dead) continue;
+                
+                if (ring.checkCollision(enemy)) {
+                    if (enemy.takeDamage(ring.damage)) {
+                        this.awardXp(enemy.xp);
+                        if (enemy._isSpawnBlock) {
+                            this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
+                        }
+                        const idx = enemy._sourceArray.indexOf(enemy);
+                        if (idx !== -1) {
+                            enemy._sourceArray.splice(idx, 1);
+                        }
+                        enemy._dead = true;
                         this.enemiesDefeated++;
                     }
                 }
             }
         }
         
-        // Check orbital shield collisions with all enemy types
+        // Check orbital shield collisions using spatial grid
         this.updatePowerManagerEnemies();
-        const allEnemies = [
-            ...this.builders,
-            ...this.spawnBlocks,
-            ...this.fieryEnemies,
-            ...this.gravitationalEnemies,
-            ...this.fastPurpleEnemies
-        ];
-        const shieldHits = this.powerManager.checkOrbitalShieldCollisions(allEnemies);
+        // Get enemies near player (where orbital shields are)
+        const nearbyForShields = this.spatialGrid.getNearby(this.player.x, this.player.y);
+        const shieldHits = this.powerManager.checkOrbitalShieldCollisions(nearbyForShields.filter(e => !e._dead));
         for (const hit of shieldHits) {
-            if (hit.enemy.takeDamage(hit.damage)) {
-                this.awardXp(hit.enemy.xp);
-                
-                // Remove from appropriate array
-                let idx = this.builders.indexOf(hit.enemy);
-                if (idx !== -1) {
-                    this.builders.splice(idx, 1);
-                    this.enemiesDefeated++;
-                    continue;
+            const enemy = hit.enemy;
+            if (enemy._dead) continue;
+            
+            if (enemy.takeDamage(hit.damage)) {
+                this.awardXp(enemy.xp);
+                if (enemy._isSpawnBlock) {
+                    this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
                 }
-                
-                idx = this.spawnBlocks.indexOf(hit.enemy);
-                if (idx !== -1) {
-                    this.crystals.push(new Crystal(hit.enemy.x, hit.enemy.y, hit.enemy.crystalType));
-                    this.spawnBlocks.splice(idx, 1);
-                    this.enemiesDefeated++;
-                    continue;
+                if (enemy._sourceArray) {
+                    const idx = enemy._sourceArray.indexOf(enemy);
+                    if (idx !== -1) {
+                        enemy._sourceArray.splice(idx, 1);
+                    }
                 }
-                
-                idx = this.fieryEnemies.indexOf(hit.enemy);
-                if (idx !== -1) {
-                    this.fieryEnemies.splice(idx, 1);
-                    this.enemiesDefeated++;
-                    continue;
-                }
-                
-                idx = this.gravitationalEnemies.indexOf(hit.enemy);
-                if (idx !== -1) {
-                    this.gravitationalEnemies.splice(idx, 1);
-                    this.enemiesDefeated++;
-                    continue;
-                }
-                
-                idx = this.fastPurpleEnemies.indexOf(hit.enemy);
-                if (idx !== -1) {
-                    this.fastPurpleEnemies.splice(idx, 1);
-                    this.enemiesDefeated++;
-                }
+                enemy._dead = true;
+                this.enemiesDefeated++;
             }
         }
         
@@ -955,6 +830,10 @@ class Game {
 
     render() {
         const ctx = this.ctx;
+        
+        // Adaptive rendering: enable simplified mode when many enemies are on screen
+        const totalEnemies = this.getTotalEnemyCount();
+        setSimplifiedRendering(totalEnemies > 300);
         
         // Clear canvas with gradient background
         const bgGradient = ctx.createRadialGradient(

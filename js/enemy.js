@@ -2,6 +2,199 @@
 
 import { randomRange, randomPositionInRing, distance, normalize, angle } from './utils.js';
 
+// Sprite cache for pre-rendered enemy sprites (avoids creating gradients every frame)
+export class SpriteCache {
+    constructor() {
+        this.sprites = new Map();
+        this.baseSize = 64; // Base sprite size in pixels
+    }
+    
+    // Initialize all enemy sprites
+    init() {
+        this.createBuilderSprite();
+        this.createFierySprite();
+        this.createGravitationalSprite();
+        this.createFastPurpleSprite();
+    }
+    
+    createBuilderSprite() {
+        const size = this.baseSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const center = size / 2;
+        const r = size / 2 - 4;
+        
+        // Main body (grey)
+        ctx.fillStyle = ENEMY_TYPES.builder.color;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Dark outline
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Inner shading gradient
+        const gradient = ctx.createRadialGradient(
+            center - r * 0.3, center - r * 0.3, 0,
+            center, center, r
+        );
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        this.sprites.set('builder', canvas);
+    }
+    
+    createFierySprite() {
+        const size = this.baseSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const center = size / 2;
+        const r = size / 4; // Smaller for fiery enemies
+        
+        // Flame glow
+        const glowSize = r * 2.5;
+        const glowGradient = ctx.createRadialGradient(
+            center, center, 0,
+            center, center, glowSize
+        );
+        glowGradient.addColorStop(0, 'rgba(255, 69, 0, 0.8)');
+        glowGradient.addColorStop(0.5, 'rgba(255, 140, 0, 0.4)');
+        glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glowGradient;
+        ctx.beginPath();
+        ctx.arc(center, center, glowSize, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Main body
+        ctx.fillStyle = ENEMY_TYPES.fiery.color;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Bright core
+        ctx.fillStyle = '#ffff00';
+        ctx.beginPath();
+        ctx.arc(center, center, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        this.sprites.set('fiery', canvas);
+    }
+    
+    createGravitationalSprite() {
+        const size = this.baseSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const center = size / 2;
+        const r = size / 2 - 8;
+        
+        // Gravity aura
+        const auraGradient = ctx.createRadialGradient(
+            center, center, r,
+            center, center, r * 1.8
+        );
+        auraGradient.addColorStop(0, 'rgba(65, 105, 225, 0.4)');
+        auraGradient.addColorStop(1, 'rgba(65, 105, 225, 0)');
+        ctx.fillStyle = auraGradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r * 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Main body
+        ctx.fillStyle = ENEMY_TYPES.gravitational.color;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner glow
+        const innerGradient = ctx.createRadialGradient(
+            center - r * 0.3, center - r * 0.3, 0,
+            center, center, r
+        );
+        innerGradient.addColorStop(0, 'rgba(100, 149, 237, 0.5)');
+        innerGradient.addColorStop(1, 'rgba(25, 25, 112, 0.3)');
+        ctx.fillStyle = innerGradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Dark outline
+        ctx.strokeStyle = 'rgba(0, 0, 50, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        this.sprites.set('gravitational', canvas);
+    }
+    
+    createFastPurpleSprite() {
+        const size = this.baseSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const center = size / 2;
+        const r = size / 3;
+        
+        // Speed glow
+        const glowGradient = ctx.createRadialGradient(
+            center, center, 0,
+            center, center, r * 2
+        );
+        glowGradient.addColorStop(0, 'rgba(139, 0, 255, 0.6)');
+        glowGradient.addColorStop(0.6, 'rgba(139, 0, 255, 0.2)');
+        glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glowGradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r * 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Main body
+        ctx.fillStyle = ENEMY_TYPES.fastPurple.color;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner highlight
+        const innerGradient = ctx.createRadialGradient(
+            center - r * 0.3, center - r * 0.3, 0,
+            center, center, r
+        );
+        innerGradient.addColorStop(0, 'rgba(200, 100, 255, 0.4)');
+        innerGradient.addColorStop(1, 'rgba(75, 0, 130, 0.2)');
+        ctx.fillStyle = innerGradient;
+        ctx.beginPath();
+        ctx.arc(center, center, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        this.sprites.set('fastPurple', canvas);
+    }
+    
+    getSprite(type) {
+        return this.sprites.get(type);
+    }
+}
+
+// Global sprite cache instance
+export const spriteCache = new SpriteCache();
+
+// Global flag for simplified rendering (set by game when enemy count is high)
+export let simplifiedRendering = false;
+export function setSimplifiedRendering(value) {
+    simplifiedRendering = value;
+}
 
 export const ENEMY_TYPES = {
     builder: {
@@ -203,52 +396,53 @@ export class Builder {
             ctx.fill();
         }
         
-        // Main body (grey, non-threatening)
-        const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
-        ctx.fillStyle = baseColor;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
-        ctx.fill();
+        // Use cached sprite if available and not hurt
+        const sprite = spriteCache.getSprite('builder');
+        if (sprite && !this.hurtTime && !simplifiedRendering) {
+            const spriteScale = (r * 2 + 8) / spriteCache.baseSize;
+            ctx.drawImage(
+                sprite,
+                screen.x - (spriteCache.baseSize * spriteScale) / 2,
+                screen.y - (spriteCache.baseSize * spriteScale) / 2,
+                spriteCache.baseSize * spriteScale,
+                spriteCache.baseSize * spriteScale
+            );
+        } else {
+            // Fallback/simplified rendering (or hurt state)
+            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            ctx.fillStyle = baseColor;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.lineWidth = 2 * scale;
+            ctx.stroke();
+        }
         
-        // Dark outline
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.lineWidth = 2 * scale;
-        ctx.stroke();
-        
-        // Inner shading
-        const gradient = ctx.createRadialGradient(
-            screen.x - r * 0.3, screen.y - r * 0.3, 0,
-            screen.x, screen.y, r
-        );
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Simple eyes - calculate direction to target
-        const dx = this.targetX - this.x;
-        const dy = this.targetY - this.y;
-        const faceAngle = Math.atan2(dy, dx);
-        
-        const eyeOffset = r * 0.3;
-        const eyeSpread = r * 0.25;
-        const eyeSize = r * 0.15;
-        
-        const leftEyeX = screen.x + Math.cos(faceAngle) * eyeOffset - Math.sin(faceAngle) * eyeSpread;
-        const leftEyeY = screen.y + Math.sin(faceAngle) * eyeOffset + Math.cos(faceAngle) * eyeSpread;
-        const rightEyeX = screen.x + Math.cos(faceAngle) * eyeOffset + Math.sin(faceAngle) * eyeSpread;
-        const rightEyeY = screen.y + Math.sin(faceAngle) * eyeOffset - Math.cos(faceAngle) * eyeSpread;
-        
-        // Draw eyes (simple grey)
-        ctx.fillStyle = this.hurtTime > 0 ? '#ff0000' : '#404040';
-        ctx.beginPath();
-        ctx.arc(leftEyeX, leftEyeY, eyeSize, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(rightEyeX, rightEyeY, eyeSize, 0, Math.PI * 2);
-        ctx.fill();
+        // Simple eyes - calculate direction to target (always draw)
+        if (!simplifiedRendering) {
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            const faceAngle = Math.atan2(dy, dx);
+            
+            const eyeOffset = r * 0.3;
+            const eyeSpread = r * 0.25;
+            const eyeSize = r * 0.15;
+            
+            const leftEyeX = screen.x + Math.cos(faceAngle) * eyeOffset - Math.sin(faceAngle) * eyeSpread;
+            const leftEyeY = screen.y + Math.sin(faceAngle) * eyeOffset + Math.cos(faceAngle) * eyeSpread;
+            const rightEyeX = screen.x + Math.cos(faceAngle) * eyeOffset + Math.sin(faceAngle) * eyeSpread;
+            const rightEyeY = screen.y + Math.sin(faceAngle) * eyeOffset - Math.cos(faceAngle) * eyeSpread;
+            
+            ctx.fillStyle = this.hurtTime > 0 ? '#ff0000' : '#404040';
+            ctx.beginPath();
+            ctx.arc(leftEyeX, leftEyeY, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(rightEyeX, rightEyeY, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         ctx.restore();
         
@@ -549,20 +743,6 @@ export class FieryEnemy {
         
         ctx.save();
         
-        // Flame glow
-        const glowSize = r * 2.5;
-        const glowGradient = ctx.createRadialGradient(
-            screen.x, screen.y, 0,
-            screen.x, screen.y, glowSize
-        );
-        glowGradient.addColorStop(0, 'rgba(255, 69, 0, 0.8)');
-        glowGradient.addColorStop(0.5, 'rgba(255, 140, 0, 0.4)');
-        glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = glowGradient;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, glowSize, 0, Math.PI * 2);
-        ctx.fill();
-        
         // Slow effect visual
         if (this.slowTime > 0) {
             ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
@@ -571,18 +751,31 @@ export class FieryEnemy {
             ctx.fill();
         }
         
-        // Main body
-        const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
-        ctx.fillStyle = baseColor;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Bright core
-        ctx.fillStyle = '#ffff00';
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r * 0.5, 0, Math.PI * 2);
-        ctx.fill();
+        // Use cached sprite if available and not hurt
+        const sprite = spriteCache.getSprite('fiery');
+        if (sprite && !this.hurtTime && !simplifiedRendering) {
+            const spriteScale = (r * 5) / spriteCache.baseSize;
+            ctx.drawImage(
+                sprite,
+                screen.x - (spriteCache.baseSize * spriteScale) / 2,
+                screen.y - (spriteCache.baseSize * spriteScale) / 2,
+                spriteCache.baseSize * spriteScale,
+                spriteCache.baseSize * spriteScale
+            );
+        } else {
+            // Simplified/fallback rendering
+            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            ctx.fillStyle = baseColor;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bright core
+            ctx.fillStyle = '#ffff00';
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         ctx.restore();
         
@@ -725,20 +918,6 @@ export class GravitationalEnemy {
         
         ctx.save();
         
-        // Blue aura
-        const glowSize = r * 2 * pulse;
-        const glowGradient = ctx.createRadialGradient(
-            screen.x, screen.y, r * 0.5,
-            screen.x, screen.y, glowSize
-        );
-        glowGradient.addColorStop(0, 'rgba(65, 105, 225, 0.6)');
-        glowGradient.addColorStop(0.7, 'rgba(65, 105, 225, 0.2)');
-        glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = glowGradient;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, glowSize, 0, Math.PI * 2);
-        ctx.fill();
-        
         // Slow effect visual
         if (this.slowTime > 0) {
             ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
@@ -747,29 +926,29 @@ export class GravitationalEnemy {
             ctx.fill();
         }
         
-        // Main body
-        const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
-        ctx.fillStyle = baseColor;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r * pulse, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Darker outline
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.lineWidth = 2 * scale;
-        ctx.stroke();
-        
-        // Inner shading
-        const innerGradient = ctx.createRadialGradient(
-            screen.x - r * 0.3, screen.y - r * 0.3, 0,
-            screen.x, screen.y, r * pulse
-        );
-        innerGradient.addColorStop(0, 'rgba(135, 206, 250, 0.8)');
-        innerGradient.addColorStop(1, 'rgba(0, 0, 139, 0.4)');
-        ctx.fillStyle = innerGradient;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r * pulse, 0, Math.PI * 2);
-        ctx.fill();
+        // Use cached sprite if available and not hurt
+        const sprite = spriteCache.getSprite('gravitational');
+        if (sprite && !this.hurtTime && !simplifiedRendering) {
+            const spriteScale = (r * 3.6) / spriteCache.baseSize * pulse;
+            ctx.drawImage(
+                sprite,
+                screen.x - (spriteCache.baseSize * spriteScale) / 2,
+                screen.y - (spriteCache.baseSize * spriteScale) / 2,
+                spriteCache.baseSize * spriteScale,
+                spriteCache.baseSize * spriteScale
+            );
+        } else {
+            // Simplified/fallback rendering
+            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            ctx.fillStyle = baseColor;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.lineWidth = 2 * scale;
+            ctx.stroke();
+        }
         
         ctx.restore();
         
@@ -880,31 +1059,6 @@ export class FastPurpleEnemy {
         
         ctx.save();
         
-        // Purple glow
-        const glowSize = r * 1.8;
-        const glowGradient = ctx.createRadialGradient(
-            screen.x, screen.y, r * 0.3,
-            screen.x, screen.y, glowSize
-        );
-        glowGradient.addColorStop(0, 'rgba(139, 0, 255, 0.7)');
-        glowGradient.addColorStop(0.7, 'rgba(139, 0, 255, 0.3)');
-        glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = glowGradient;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, glowSize, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Speed lines (motion blur effect)
-        ctx.strokeStyle = 'rgba(139, 0, 255, 0.5)';
-        ctx.lineWidth = 2 * scale;
-        for (let i = 0; i < 3; i++) {
-            const offset = (i + 1) * 4 * scale;
-            ctx.beginPath();
-            ctx.moveTo(screen.x - offset, screen.y);
-            ctx.lineTo(screen.x - offset - 5 * scale, screen.y);
-            ctx.stroke();
-        }
-        
         // Slow effect visual
         if (this.slowTime > 0) {
             ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
@@ -913,17 +1067,29 @@ export class FastPurpleEnemy {
             ctx.fill();
         }
         
-        // Main body
-        const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
-        ctx.fillStyle = baseColor;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Outline
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.lineWidth = 2 * scale;
-        ctx.stroke();
+        // Use cached sprite if available and not hurt
+        const sprite = spriteCache.getSprite('fastPurple');
+        if (sprite && !this.hurtTime && !simplifiedRendering) {
+            const spriteScale = (r * 4) / spriteCache.baseSize;
+            ctx.drawImage(
+                sprite,
+                screen.x - (spriteCache.baseSize * spriteScale) / 2,
+                screen.y - (spriteCache.baseSize * spriteScale) / 2,
+                spriteCache.baseSize * spriteScale,
+                spriteCache.baseSize * spriteScale
+            );
+        } else {
+            // Simplified/fallback rendering
+            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            ctx.fillStyle = baseColor;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.lineWidth = 2 * scale;
+            ctx.stroke();
+        }
         
         ctx.restore();
         
