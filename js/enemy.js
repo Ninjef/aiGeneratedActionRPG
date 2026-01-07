@@ -263,7 +263,7 @@ export const ENEMY_TYPES = {
         damage: 10,
         color: '#2ecc71',  // Green
         xp: 12,
-        aggroRadius: 800  // Very far aggro distance
+        aggroRadius: 6000  // Very far aggro distance
     },
     fiery: {
         radius: 8,
@@ -274,7 +274,7 @@ export const ENEMY_TYPES = {
         xp: 15,
         trailInterval: 0.2,  // Leave trail every 0.2s
         trailRadius: 20,
-        trailDuration: 9.0,  // 8-10 seconds
+        trailDuration: 6.0,  // 8-10 seconds
         trailDamage: 6  // ~6 dps
     },
     gravitational: {
@@ -458,7 +458,7 @@ export class Builder {
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('builder');
         if (sprite && !this.hurtTime && !simplifiedRendering) {
-            const spriteScale = (r * 2 + 8) / spriteCache.baseSize;
+            const spriteScale = (r * 2) / spriteCache.baseSize;
             ctx.drawImage(
                 sprite,
                 screen.x - (spriteCache.baseSize * spriteScale) / 2,
@@ -504,24 +504,6 @@ export class Builder {
         }
         
         ctx.restore();
-        
-        // Health bar (only if damaged)
-        if (this.health < this.maxHealth) {
-            this.renderHealthBar(ctx, screen, scale);
-        }
-    }
-
-    renderHealthBar(ctx, screen, scale) {
-        const barWidth = this.radius * 2 * scale;
-        const barHeight = 4 * scale;
-        const barY = screen.y - this.radius * scale - 8 * scale;
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth, barHeight);
-        
-        const healthPercent = this.health / this.maxHealth;
-        ctx.fillStyle = '#808080';
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
     }
 }
 
@@ -653,7 +635,7 @@ export class Fighter {
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('fighter');
         if (sprite && !this.hurtTime && !simplifiedRendering) {
-            const spriteScale = (r * 2 + 8) / spriteCache.baseSize;
+            const spriteScale = (r * 2) / spriteCache.baseSize;
             ctx.drawImage(
                 sprite,
                 screen.x - (spriteCache.baseSize * spriteScale) / 2,
@@ -696,24 +678,6 @@ export class Fighter {
         }
         
         ctx.restore();
-        
-        // Health bar (only if damaged)
-        if (this.health < this.maxHealth) {
-            this.renderHealthBar(ctx, screen, scale);
-        }
-    }
-
-    renderHealthBar(ctx, screen, scale) {
-        const barWidth = this.radius * 2 * scale;
-        const barHeight = 4 * scale;
-        const barY = screen.y - this.radius * scale - 8 * scale;
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth, barHeight);
-        
-        const healthPercent = this.health / this.maxHealth;
-        ctx.fillStyle = this.color;
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
     }
 }
 
@@ -1026,24 +990,6 @@ export class FieryEnemy {
         }
         
         ctx.restore();
-        
-        // Health bar (only if damaged)
-        if (this.health < this.maxHealth) {
-            this.renderHealthBar(ctx, screen, scale);
-        }
-    }
-    
-    renderHealthBar(ctx, screen, scale) {
-        const barWidth = this.radius * 2 * scale;
-        const barHeight = 3 * scale;
-        const barY = screen.y - this.radius * scale - 6 * scale;
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth, barHeight);
-        
-        const healthPercent = this.health / this.maxHealth;
-        ctx.fillStyle = this.color;
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
     }
 }
 
@@ -1177,7 +1123,7 @@ export class GravitationalEnemy {
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('gravitational');
         if (sprite && !this.hurtTime && !simplifiedRendering) {
-            const spriteScale = (r * 3.6) / spriteCache.baseSize * pulse;
+            const spriteScale = (r * 2) / spriteCache.baseSize * pulse;
             ctx.drawImage(
                 sprite,
                 screen.x - (spriteCache.baseSize * spriteScale) / 2,
@@ -1199,24 +1145,6 @@ export class GravitationalEnemy {
         }
         
         ctx.restore();
-        
-        // Health bar (only if damaged)
-        if (this.health < this.maxHealth) {
-            this.renderHealthBar(ctx, screen, scale);
-        }
-    }
-    
-    renderHealthBar(ctx, screen, scale) {
-        const barWidth = this.radius * 2 * scale;
-        const barHeight = 4 * scale;
-        const barY = screen.y - this.radius * scale - 8 * scale;
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth, barHeight);
-        
-        const healthPercent = this.health / this.maxHealth;
-        ctx.fillStyle = this.color;
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
     }
 }
 
@@ -1340,24 +1268,6 @@ export class FastPurpleEnemy {
         }
         
         ctx.restore();
-        
-        // Health bar (only if damaged)
-        if (this.health < this.maxHealth) {
-            this.renderHealthBar(ctx, screen, scale);
-        }
-    }
-    
-    renderHealthBar(ctx, screen, scale) {
-        const barWidth = this.radius * 2 * scale;
-        const barHeight = 3 * scale;
-        const barY = screen.y - this.radius * scale - 6 * scale;
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth, barHeight);
-        
-        const healthPercent = this.health / this.maxHealth;
-        ctx.fillStyle = this.color;
-        ctx.fillRect(screen.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
     }
 }
 
@@ -1365,15 +1275,15 @@ export class EnemySpawner {
     constructor() {
         this.spawnTimer = 0;
         this.spawnInterval = 1.5; // Faster spawning (was 2.0)
-        this.maxBuilders = 150; // Max builders
-        this.maxFighters = 80; // Max fighters
+        this.maxBuilders = 450; // Max builders
+        this.maxFighters = 500; // Max fighters
         this.difficulty = 1;
         this.gameTime = 0;
         
         // Fighter spawning (separate timer, starts spawning after some time)
         this.fighterSpawnTimer = 0;
-        this.fighterSpawnInterval = 3.0; // Initial interval (slower than builders)
-        this.fighterSpawnDelay = 5.0; // Start spawning fighters after 5 seconds
+        this.fighterSpawnInterval = 0.1; // Initial interval (slower than builders)
+        this.fighterSpawnDelay = 2.0; // Start spawning fighters after 5 seconds
     }
 
     // Calculate spawn distance based on visible screen diagonal

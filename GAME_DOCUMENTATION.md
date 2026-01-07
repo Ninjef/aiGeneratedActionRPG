@@ -46,6 +46,7 @@ npm run test:watch # Watch mode for development
 │   ├── crystal.js      # Crystal class + CrystalSpawner
 │   ├── powers.js       # Power definitions + PowerManager
 │   ├── powerRune.js    # PowerRune class for collectible power items
+│   ├── floatingText.js # FloatingText class for celebratory power collection feedback
 │   ├── projectile.js   # Projectile, AreaEffect, RingEffect, OrbitalShield classes
 │   ├── statusEffects.js # StatusEffect + StatusEffectManager for temporary buffs
 │   ├── camera.js       # Camera class for infinite world viewport + zoom
@@ -360,6 +361,35 @@ Each power rune has:
 - Contains `castX()` methods for each power that create projectiles/effects
 - Uses `getEffectiveLevel(power)` to combine base level + status effect bonuses
 
+#### Floating Text System (`floatingText.js`)
+
+When a power rune is collected, celebratory floating text appears at the rune's position to provide immediate visual feedback:
+
+**Features:**
+- **Power Name Display**: Shows the name of the collected power in large, gold text
+- **Progress Indicator**: Displays current level and runes needed for next level (e.g., "Lv.2 [1/3]")
+- **Visual Effects**:
+  - Floats upward at 60 pixels/second
+  - Bouncy scale animation for celebratory feel
+  - Fades in quickly at start (0.2s)
+  - Fades out at end (0.5s)
+- **Duration**: 2 seconds total
+- **Non-Intrusive**: Does not pause game or block gameplay
+
+**Implementation:**
+```javascript
+// Created when player collects a power rune
+const floatingText = new FloatingText(
+    runeX, runeY,           // Position (world coordinates)
+    powerName,              // e.g., "Fireball"
+    level,                  // Current level after collection
+    runesProgress,          // Runes collected toward next level
+    runesNeeded             // Total runes needed for next level
+);
+```
+
+The floating text renders on top of all game entities but below the vignette overlay and UI elements, ensuring visibility without obscuring critical gameplay information.
+
 ### XP and Passive Upgrade System
 
 A parallel progression system separate from crystal-based powers.
@@ -482,6 +512,8 @@ spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 | Starting rune lifetime | 15.0s | `game.js` |
 | Runes per crystal | 3 | `game.js` |
 | Starting runes | 4 | `game.js` |
+| Floating text duration | 2.0s | `floatingText.js` |
+| Floating text rise speed | 60 px/s | `floatingText.js` |
 | Crystal nova damage | 30 | `game.js` |
 | Crystal aggro radius | 350 | `crystal.js` |
 | Max builders | 150 | `enemy.js` |
@@ -528,8 +560,9 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 12. Orbital shields
 13. Player
 14. Player projectiles
-15. Vignette overlay
-16. Game timer (top center)
+15. Floating texts (power collection feedback)
+16. Vignette overlay
+17. Game timer (top center)
 
 ## Adding New Content
 

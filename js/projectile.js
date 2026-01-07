@@ -61,7 +61,7 @@ export class Projectile {
                 enemy.applySlow(this.slowAmount, this.slowDuration);
             }
             
-            return !this.piercing;
+            return true; // Return true to indicate collision occurred
         }
         return false;
     }

@@ -7,6 +7,7 @@ import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
 import { Projectile, AreaEffect, RingEffect } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
 import { PowerRune } from './powerRune.js';
+import { FloatingText } from './floatingText.js';
 import { UI } from './ui.js';
 import { circleCollision, SpatialGrid } from './collision.js';
 import { distance, distanceSquared, angle, randomRange, randomChoice } from './utils.js';
@@ -109,6 +110,7 @@ class Game {
         this.projectiles = [];
         this.areaEffects = [];
         this.ringEffects = [];
+        this.floatingTexts = [];
         
         // Spawners
         this.enemySpawner = new EnemySpawner();
@@ -418,6 +420,8 @@ class Game {
                         enemy._dead = true;
                         this.enemiesDefeated++;
                     }
+                    
+                    // Remove projectile if not piercing
                     if (!proj.piercing) {
                         this.projectiles.splice(i, 1);
                         projHit = true;
@@ -635,6 +639,20 @@ class Game {
                 const powerDef = POWERS[rune.powerId];
                 const result = this.player.collectPowerRune(rune.powerId, powerDef?.passive || false);
                 
+                // Create floating text to show what was collected
+                const progress = this.player.getPowerProgress(rune.powerId);
+                if (progress && powerDef) {
+                    const floatingText = new FloatingText(
+                        rune.x,
+                        rune.y,
+                        powerDef.name,
+                        progress.level,
+                        progress.runesProgress,
+                        progress.runesNeeded
+                    );
+                    this.floatingTexts.push(floatingText);
+                }
+                
                 // Remove all runes in the same group (tethered runes)
                 const groupId = rune.groupId;
                 console.log('Collected rune, groupId:', groupId, 'total runes before:', this.powerRunes.length);
@@ -656,6 +674,13 @@ class Game {
                 
                 // Break since we may have modified the array significantly
                 break;
+            }
+        }
+        
+        // Update floating texts
+        for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+            if (!this.floatingTexts[i].update(dt)) {
+                this.floatingTexts.splice(i, 1);
             }
         }
         
@@ -966,6 +991,11 @@ class Game {
             if (this.camera.isVisible(proj.x, proj.y, 20)) {
                 proj.render(ctx, this.camera);
             }
+        }
+        
+        // Draw floating texts (on top of entities)
+        for (const text of this.floatingTexts) {
+            text.render(ctx, this.camera);
         }
         
         // Draw vignette overlay
