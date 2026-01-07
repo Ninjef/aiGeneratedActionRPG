@@ -153,9 +153,12 @@ class Game {
         // Get all power IDs
         const allPowerIds = Object.keys(POWERS);
         
+        // Generate unique group ID for this set of runes
+        const groupId = `start_${Date.now()}`;
+        
         // Spawn 4 runes around the player in a circle
         const numRunes = 4;
-        const spawnRadius = 150;
+        const spawnRadius = 200; // Spawn at final positions
         
         for (let i = 0; i < numRunes; i++) {
             const runeAngle = (i / numRunes) * Math.PI * 2 + Math.PI / 4;
@@ -165,14 +168,13 @@ class Game {
             // Pick a random power
             const powerId = randomChoice(allPowerIds);
             
-            // Create rune at position (no velocity, already "landed")
-            const rune = new PowerRune(spawnX, spawnY, powerId, 0);
-            rune.vx = 0;
-            rune.vy = 0;
+            // Create rune at final position with group ID
+            const rune = new PowerRune(spawnX, spawnY, powerId, groupId);
             rune.lifetime = 15.0; // Extra time for starting runes
             rune.maxLifetime = 15.0;
             
             this.powerRunes.push(rune);
+            console.log('Spawned starting rune with groupId:', rune.groupId);
         }
     }
 
@@ -731,8 +733,27 @@ class Game {
                 const powerDef = POWERS[rune.powerId];
                 const result = this.player.collectPowerRune(rune.powerId, powerDef?.passive || false);
                 
-                // Remove the collected rune
-                this.powerRunes.splice(i, 1);
+                // Remove all runes in the same group (tethered runes)
+                const groupId = rune.groupId;
+                console.log('Collected rune, groupId:', groupId, 'total runes before:', this.powerRunes.length);
+                if (groupId) {
+                    // Remove all runes with matching groupId
+                    let removed = 0;
+                    for (let j = this.powerRunes.length - 1; j >= 0; j--) {
+                        if (this.powerRunes[j].groupId === groupId) {
+                            this.powerRunes.splice(j, 1);
+                            removed++;
+                        }
+                    }
+                    console.log('Removed', removed, 'runes with groupId:', groupId);
+                } else {
+                    // No group, just remove the single rune
+                    this.powerRunes.splice(i, 1);
+                    console.log('No groupId, removed single rune');
+                }
+                
+                // Break since we may have modified the array significantly
+                break;
             }
         }
         
@@ -872,6 +893,7 @@ class Game {
     /**
      * Spawn 3 power runes when a crystal is collected
      * 1 guaranteed from crystal's element, 2 random from all powers
+     * Runes appear instantly at final positions, tethered together
      */
     spawnPowerRunes(x, y, crystalType) {
         const powersByCategory = {
@@ -892,10 +914,16 @@ class Game {
         runeIds.push(randomChoice(allPowerIds));
         runeIds.push(randomChoice(allPowerIds));
         
-        // Spawn runes flying outward in different directions
+        // Generate unique group ID for this set of runes
+        const groupId = `crystal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Spawn runes at final positions (200 units from crystal - 2x previous landing distance)
+        const spawnRadius = 200;
         for (let i = 0; i < runeIds.length; i++) {
             const runeAngle = (i / 3) * Math.PI * 2 + randomRange(-0.3, 0.3);
-            const rune = new PowerRune(x, y, runeIds[i], runeAngle);
+            const spawnX = x + Math.cos(runeAngle) * spawnRadius;
+            const spawnY = y + Math.sin(runeAngle) * spawnRadius;
+            const rune = new PowerRune(spawnX, spawnY, runeIds[i], groupId);
             this.powerRunes.push(rune);
         }
     }
@@ -960,6 +988,9 @@ class Game {
                 crystal.render(ctx, this.camera);
             }
         }
+        
+        // Draw power rune tether lines first
+        this.renderRuneTethers(ctx);
         
         // Draw power runes
         for (const rune of this.powerRunes) {
@@ -1040,6 +1071,76 @@ class Game {
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, p.size, 0, Math.PI * 2);
             ctx.fill();
+        }
+    }
+    
+    /**
+     * Render connecting lines between tethered power runes in the same group
+     */
+    renderRuneTethers(ctx) {
+        // Group runes by their groupId
+        const runeGroups = new Map();
+        for (const rune of this.powerRunes) {
+            if (rune.groupId) {
+                if (!runeGroups.has(rune.groupId)) {
+                    runeGroups.set(rune.groupId, []);
+                }
+                runeGroups.get(rune.groupId).push(rune);
+            }
+        }
+        
+        // Debug: log groups once at the start
+        if (this.powerRunes.length > 0 && !this._tethersLogged) {
+            console.log('Rune groups:', runeGroups.size, 'groups from', this.powerRunes.length, 'runes');
+            for (const [gid, runes] of runeGroups) {
+                console.log('  Group', gid, 'has', runes.length, 'runes');
+            }
+            this._tethersLogged = true;
+        }
+        if (this.powerRunes.length === 0) {
+            this._tethersLogged = false;
+        }
+        
+        // Draw lines between runes in each group
+        for (const [groupId, runes] of runeGroups) {
+            if (runes.length < 2) continue;
+            
+            // Calculate average alpha based on lifetime for fading
+            const avgAlpha = runes.reduce((sum, r) => {
+                const fadeStart = 2.0;
+                let alpha = 1.0;
+                if (r.lifetime < fadeStart) {
+                    alpha = r.lifetime / fadeStart;
+                }
+                return sum + alpha;
+            }, 0) / runes.length;
+            
+            // Draw lines connecting each rune to all others (triangle pattern for 3 runes)
+            ctx.save();
+            ctx.globalAlpha = avgAlpha * 0.4;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
+            
+            ctx.beginPath();
+            for (let i = 0; i < runes.length; i++) {
+                for (let j = i + 1; j < runes.length; j++) {
+                    const screen1 = this.camera.worldToScreen(runes[i].x, runes[i].y);
+                    const screen2 = this.camera.worldToScreen(runes[j].x, runes[j].y);
+                    ctx.moveTo(screen1.x, screen1.y);
+                    ctx.lineTo(screen2.x, screen2.y);
+                }
+            }
+            ctx.stroke();
+            
+            // Draw a subtle glow effect on the lines
+            ctx.globalAlpha = avgAlpha * 0.15;
+            ctx.strokeStyle = '#88ccff';
+            ctx.lineWidth = 6;
+            ctx.setLineDash([8, 8]);
+            ctx.stroke();
+            
+            ctx.restore();
         }
     }
     

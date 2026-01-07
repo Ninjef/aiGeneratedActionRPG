@@ -1,6 +1,5 @@
 // Power Rune class - collectible items that grant/upgrade powers
 
-import { POWERS } from './powers.js';
 import { distance } from './utils.js';
 
 // Icon rendering functions for each power
@@ -200,18 +199,13 @@ const POWER_ICONS = {
 };
 
 export class PowerRune {
-    constructor(x, y, powerId, angle) {
+    constructor(x, y, powerId, groupId = null) {
         this.x = x;
         this.y = y;
         this.powerId = powerId;
+        this.groupId = groupId; // Links runes together - collecting one removes all in group
         
-        // Physics for flying out
-        const speed = 250 + Math.random() * 100;
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        this.friction = 3.0; // Deceleration rate
-        
-        this.radius = 18;
+        this.radius = 22; // Increased from 18 for better visibility
         this.collectRadius = 35;
         this.lifetime = 6.0; // Seconds before disappearing
         this.maxLifetime = 6.0;
@@ -237,20 +231,6 @@ export class PowerRune {
     }
 
     update(dt) {
-        // Apply velocity
-        this.x += this.vx * dt;
-        this.y += this.vy * dt;
-        
-        // Apply friction
-        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        if (speed > 0) {
-            const friction = this.friction * dt * speed;
-            const newSpeed = Math.max(0, speed - friction);
-            const ratio = newSpeed / speed;
-            this.vx *= ratio;
-            this.vy *= ratio;
-        }
-        
         // Update lifetime
         this.lifetime -= dt;
         
@@ -308,20 +288,11 @@ export class PowerRune {
         ctx.fill();
         ctx.stroke();
         
-        // Draw power icon
+        // Draw power icon (larger, no text label)
         ctx.fillStyle = this.icon.color;
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1.5 * scale;
-        this.icon.render(ctx, 0, 0, size * 0.7);
-        
-        // Power name below (small text)
-        const powerDef = POWERS[this.powerId];
-        if (powerDef) {
-            ctx.fillStyle = this.icon.color;
-            ctx.font = `${10 * scale}px "Segoe UI", sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.fillText(powerDef.name, 0, size + 12 * scale);
-        }
+        this.icon.render(ctx, 0, 0, size * 0.9);
         
         ctx.restore();
     }
