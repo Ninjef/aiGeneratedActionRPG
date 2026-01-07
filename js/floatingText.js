@@ -15,8 +15,9 @@ export class FloatingText {
         // Animation properties
         this.lifetime = 2.0; // Duration in seconds
         this.maxLifetime = 2.0;
-        this.floatSpeed = 60; // Pixels per second upward
+        this.floatSpeed = 0; // Stays in place (no upward movement)
         this.scalePhase = 0; // For scale animation
+        this.baseAlpha = 0.5; // Base transparency (50%)
         
         // Color based on rarity/level
         this.color = '#FFD700'; // Gold color
@@ -24,7 +25,7 @@ export class FloatingText {
     }
     
     update(dt) {
-        // Float upward
+        // Move based on float speed (0 = stays in place)
         this.y -= this.floatSpeed * dt;
         
         // Update lifetime
@@ -42,14 +43,14 @@ export class FloatingText {
         
         // Calculate fade based on lifetime
         const fadeStart = 0.5;
-        let alpha = 1.0;
+        let alpha = this.baseAlpha; // Start with base transparency
         if (this.lifetime < fadeStart) {
-            alpha = this.lifetime / fadeStart;
+            alpha = (this.lifetime / fadeStart) * this.baseAlpha;
         }
         // Also fade in at start
         const fadeInDuration = 0.2;
         if (this.maxLifetime - this.lifetime < fadeInDuration) {
-            alpha = (this.maxLifetime - this.lifetime) / fadeInDuration;
+            alpha = ((this.maxLifetime - this.lifetime) / fadeInDuration) * this.baseAlpha;
         }
         
         // Bouncy scale animation
@@ -61,13 +62,13 @@ export class FloatingText {
         ctx.scale(scaleBoost, scaleBoost);
         
         // Draw power name (larger text)
-        ctx.font = `bold ${Math.floor(24 * scale)}px Arial`;
+        ctx.font = `bold ${Math.floor(120 * scale)}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
         // Outline
         ctx.strokeStyle = this.outlineColor;
-        ctx.lineWidth = 4 * scale;
+        ctx.lineWidth = 20 * scale;
         ctx.strokeText(this.powerName, 0, 0);
         
         // Fill
@@ -76,16 +77,16 @@ export class FloatingText {
         
         // Draw progress below (smaller text)
         const progressText = `Lv.${this.level} [${this.runesProgress}/${this.runesNeeded}]`;
-        ctx.font = `${Math.floor(16 * scale)}px Arial`;
+        ctx.font = `${Math.floor(80 * scale)}px Arial`;
         
         // Outline
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.lineWidth = 3 * scale;
-        ctx.strokeText(progressText, 0, 28 * scale);
+        ctx.lineWidth = 15 * scale;
+        ctx.strokeText(progressText, 0, 140 * scale);
         
         // Fill
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillText(progressText, 0, 28 * scale);
+        ctx.fillText(progressText, 0, 140 * scale);
         
         ctx.restore();
     }

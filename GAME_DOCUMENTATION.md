@@ -42,7 +42,7 @@ npm run test:watch # Watch mode for development
 ├── js/
 │   ├── game.js         # Main game loop, initialization, orchestration
 │   ├── player.js       # Player class (movement, health, power progression)
-│   ├── enemy.js        # Enemy class + EnemySpawner + Champion class
+│   ├── enemy.js        # Enemy classes + EnemySpawner + SpawnBlock
 │   ├── crystal.js      # Crystal class + CrystalSpawner
 │   ├── powers.js       # Power definitions + PowerManager
 │   ├── powerRune.js    # PowerRune class for collectible power items
@@ -153,8 +153,8 @@ All game entities share common patterns:
 |--------|---------------|--------|--------|--------|
 | Player | `x, y` | 20 | Movement, invincibility | Circle + health bar |
 | Builder | `x, y` | 15 | Flee/crystal seek/wander | Grey circle + simple eyes |
-| Fighter | `x, y` | 14 | Chase from far/wander | Green circle + angry eyes |
-| SpawnBlock | `x, y` | 30 | Spawn timer, spawning | Pulsing square + health bar |
+| Fighter | `x, y` | 14 | Tower priority/player chase/wander | Green circle + angry eyes |
+| SpawnBlock | `x, y` | 30 | Attract fighters, trigger spawn | Pulsing square + health bar |
 | FieryEnemy | `x, y` | 8 | Erratic movement, trails | Red circle + flame glow |
 | GravitationalEnemy | `x, y` | 18 | Player chase, mutual gravity | Blue circle + aura |
 | FastPurpleEnemy | `x, y` | 10 | High-speed chase | Purple circle + speed lines |
@@ -164,9 +164,12 @@ All game entities share common patterns:
 
 All entity rendering is scaled by `camera.zoom` for proper proportions at any zoom level.
 
-### Enemy System - Builder & Spawn Block Architecture
+### Enemy System - Builder, Fighter & Spawn Block Architecture
 
-The game features a unique enemy spawning system where **Builder** enemies convert crystals into spawn blocks, which then spawn specialized enemies.
+The game features a unique enemy spawning system:
+1. **Builder** enemies convert crystals into spawn blocks (towers)
+2. **Fighter** enemies are attracted to towers and prioritize entering them over attacking the player
+3. When a fighter enters a tower, it triggers a spawn of specialized enemies and the fighter is consumed
 
 #### Enemy Types
 
@@ -186,7 +189,9 @@ The game features a unique enemy spawning system where **Builder** enemies conve
 // Spawn blocks are created when builders touch crystals
 - Health: 250 HP (destructible by player attacks)
 - Color matches crystal type (red/blue/purple)
-- Spawn enemies every 5-8 seconds
+- Attract fighters from 400 units away (aggroRadius)
+- Spawn enemies ONLY when a fighter enters the block
+- Fighter is consumed when entering the tower
 - Drop crystal of same type when destroyed
 - Award 50 XP when destroyed
 - Visual: Pulsing square with diagonal pattern
@@ -194,9 +199,11 @@ The game features a unique enemy spawning system where **Builder** enemies conve
 
 **Fighter Enemies (Green) - Spawned Incrementally**
 ```javascript
-// Fighters spawn incrementally over time (starting at 15 seconds)
-- Behavior: Chase player from very far away (800 unit aggro)
-- Wander randomly when player not in range
+// Fighters spawn incrementally over time (starting at 2 seconds)
+- PRIORITY 1: Move toward nearest spawn block (tower) within 400 units
+- PRIORITY 2: Chase player from very far away (6000 unit aggro)
+- PRIORITY 3: Wander randomly when nothing in range
+- Fighters entering towers trigger enemy spawns and are consumed
 - Deal contact damage on touch
 - Stats: { radius: 14, speed: 140, health: 40, damage: 10, xp: 12 }
 ```
@@ -204,21 +211,21 @@ The game features a unique enemy spawning system where **Builder** enemies conve
 **Specialized Combat Enemies (from Spawn Blocks)**
 
 1. **Fiery Enemies (Red) - from Heat Spawn Blocks**
-   - Spawn: 5 enemies every 5 seconds
+   - Spawn: 5 enemies per fighter entering the tower
    - Behavior: Erratic zig-zag movement
    - Leave fire trails behind them (damages player)
    - Stats: { radius: 8, speed: 250, health: 15, damage: 8, xp: 15 }
-   - Fire trail: 20 radius, 9 second duration, 6 damage
+   - Fire trail: 20 radius, 6 second duration, 6 damage
 
 2. **Gravitational Enemies (Blue) - from Cold Spawn Blocks**
-   - Spawn: 3 enemies every 5 seconds
+   - Spawn: 3 enemies per fighter entering the tower
    - Behavior: Chase player, pull toward each other
    - Mutual gravitational attraction (100 unit range)
    - Form tight groups when near each other
    - Stats: { radius: 18, speed: 80, health: 60, damage: 12, xp: 30 }
 
 3. **Fast Purple Enemies (Purple) - from Force Spawn Blocks**
-   - Spawn: 5 enemies every 8 seconds
+   - Spawn: 5 enemies per fighter entering the tower
    - Behavior: High-speed chase toward player
    - Simple, direct pursuit
    - Stats: { radius: 10, speed: 200, health: 25, damage: 10, xp: 20 }
@@ -232,9 +239,15 @@ The game features a unique enemy spawning system where **Builder** enemies conve
 3. Spawn block created at crystal's position
 4. Spawn block inherits crystal type
 
-// Spawn intervals:
-Heat/Cold spawn blocks: 5.0 seconds
-Force spawn blocks: 8.0 seconds
+// Fighter → Enemy spawning:
+1. Fighter is attracted to tower within 400 units (aggroRadius)
+2. Fighter prioritizes towers over chasing player
+3. When fighter collides with spawn block:
+   - Fighter is consumed (removed from game)
+   - Spawn block triggers enemy spawn based on type
+   - Heat: 5 fiery enemies
+   - Cold: 3 gravitational enemies
+   - Force: 5 fast purple enemies
 
 // When spawn block destroyed:
 1. Award 50 XP
@@ -494,10 +507,11 @@ difficulty = 1 + floor(gameTime / 30) * 0.5  // +0.5 every 30 seconds
 spawnInterval = max(0.3, 1.5 - difficulty * 0.15)  // Faster spawns
 spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 
-// All spawned enemies are builders
-// Specialized enemies come from spawn blocks, not direct spawning
-// As more builders spawn, more spawn blocks are created
-// More spawn blocks = more specialized enemies
+// Builders are spawned directly by EnemySpawner
+// Fighters are also spawned by EnemySpawner (starting at 2 seconds)
+// Fighters are attracted to spawn blocks (towers) over the player
+// Specialized enemies spawn ONLY when fighters enter towers
+// More fighters = more tower activations = more specialized enemies
 ```
 
 ## Key Game Constants
@@ -516,15 +530,16 @@ spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 | Floating text rise speed | 60 px/s | `floatingText.js` |
 | Crystal nova damage | 30 | `game.js` |
 | Crystal aggro radius | 350 | `crystal.js` |
-| Max builders | 150 | `enemy.js` |
-| Max fighters | 80 | `enemy.js` |
-| Fighter spawn delay | 15s | `enemy.js` |
-| Fighter aggro radius | 800 | `enemy.js` |
+| Max builders | 450 | `enemy.js` |
+| Max fighters | 500 | `enemy.js` |
+| Fighter spawn delay | 2s | `enemy.js` |
+| Fighter aggro radius | 6000 | `enemy.js` |
+| Tower aggro radius | 400 | `enemy.js` |
 | Max crystals | 15 | `crystal.js` |
 | Builder flee radius | 200 | `enemy.js` |
 | Spawn block health | 250 | `enemy.js` |
 | Spawn block XP | 50 | `enemy.js` |
-| Fire trail duration | 9.0s | `enemy.js` |
+| Fire trail duration | 6.0s | `enemy.js` |
 | Gravity range | 100 | `enemy.js` |
 | Projectile lifetime (powers) | 3-3.5s | `powers.js` |
 

@@ -267,20 +267,20 @@ export const ENEMY_TYPES = {
     },
     fiery: {
         radius: 8,
-        speed: 250,  // Very fast
+        speed: 300,  // Very fast
         health: 15,
         damage: 8,
         color: '#ff4500',  // Red-orange
         xp: 15,
-        trailInterval: 0.2,  // Leave trail every 0.2s
-        trailRadius: 20,
-        trailDuration: 6.0,  // 8-10 seconds
+        trailInterval: 0.07,  // Leave trail every 0.2s
+        trailRadius: 15,
+        trailDuration: 1.5,
         trailDamage: 6  // ~6 dps
     },
     gravitational: {
         radius: 18,
-        speed: 80,  // Slower
-        health: 60,
+        speed: 110,  // Slower
+        health: 150,
         damage: 12,
         color: '#4169e1',  // Blue
         xp: 30,
@@ -290,7 +290,7 @@ export const ENEMY_TYPES = {
     fastPurple: {
         radius: 10,
         speed: 200,
-        health: 25,
+        health: 75,
         damage: 10,
         color: '#8b00ff',  // Purple
         xp: 20
@@ -510,7 +510,7 @@ export class Builder {
 // For backward compatibility, keep Enemy as an alias to Builder
 export const Enemy = Builder;
 
-// Fighter class - aggressive green enemies that chase the player from far away
+// Fighter class - aggressive green enemies that prioritize towers, then chase player
 export class Fighter {
     constructor(x, y) {
         const config = ENEMY_TYPES.fighter;
@@ -542,7 +542,10 @@ export class Fighter {
         // Direction tracking for visuals
         this.facingAngle = Math.random() * Math.PI * 2;
         
-        // Wandering AI state (when player not in aggro range)
+        // Target tracking
+        this.targetTower = null;
+        
+        // Wandering AI state (when nothing in range)
         this.wanderAngle = Math.random() * Math.PI * 2;
         this.wanderTimer = 0;
         this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
@@ -564,7 +567,7 @@ export class Fighter {
         return this.health <= 0;
     }
 
-    update(dt, playerX, playerY) {
+    update(dt, playerX, playerY, spawnBlocks = []) {
         // Update slow
         if (this.slowTime > 0) {
             this.slowTime -= dt;
@@ -582,33 +585,61 @@ export class Fighter {
             this.knockbackY *= 0.9;
         }
         
-        const distToPlayer = distance(this.x, this.y, playerX, playerY);
+        // PRIORITY 1: Check for nearby spawn blocks (towers) - these take priority
+        let nearestTower = null;
+        let nearestTowerDist = Infinity;
         
-        // If player is within aggro range, chase them
-        if (distToPlayer < this.aggroRadius) {
-            const dx = playerX - this.x;
-            const dy = playerY - this.y;
+        for (const block of spawnBlocks) {
+            const dist = distance(this.x, this.y, block.x, block.y);
+            if (dist < block.aggroRadius && dist < nearestTowerDist) {
+                nearestTower = block;
+                nearestTowerDist = dist;
+            }
+        }
+        
+        if (nearestTower) {
+            // Move toward tower (highest priority)
+            this.targetTower = nearestTower;
+            const dx = nearestTower.x - this.x;
+            const dy = nearestTower.y - this.y;
             const dir = normalize(dx, dy);
             
             this.x += dir.x * this.speed * dt;
             this.y += dir.y * this.speed * dt;
             
             // Update facing direction
-            this.facingAngle = angle(this.x, this.y, playerX, playerY);
+            this.facingAngle = angle(this.x, this.y, nearestTower.x, nearestTower.y);
         } else {
-            // Wander randomly when player not in range
-            this.wanderTimer += dt;
-            if (this.wanderTimer >= this.wanderChangeInterval) {
-                this.wanderTimer = 0;
-                this.wanderAngle = Math.random() * Math.PI * 2;
-                this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+            this.targetTower = null;
+            
+            // PRIORITY 2: Chase player if within aggro range
+            const distToPlayer = distance(this.x, this.y, playerX, playerY);
+            
+            if (distToPlayer < this.aggroRadius) {
+                const dx = playerX - this.x;
+                const dy = playerY - this.y;
+                const dir = normalize(dx, dy);
+                
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+                
+                // Update facing direction
+                this.facingAngle = angle(this.x, this.y, playerX, playerY);
+            } else {
+                // PRIORITY 3: Wander randomly when nothing in range
+                this.wanderTimer += dt;
+                if (this.wanderTimer >= this.wanderChangeInterval) {
+                    this.wanderTimer = 0;
+                    this.wanderAngle = Math.random() * Math.PI * 2;
+                    this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+                }
+                
+                const wanderSpeed = this.speed * 0.4;
+                this.x += Math.cos(this.wanderAngle) * wanderSpeed * dt;
+                this.y += Math.sin(this.wanderAngle) * wanderSpeed * dt;
+                
+                this.facingAngle = this.wanderAngle;
             }
-            
-            const wanderSpeed = this.speed * 0.4;
-            this.x += Math.cos(this.wanderAngle) * wanderSpeed * dt;
-            this.y += Math.sin(this.wanderAngle) * wanderSpeed * dt;
-            
-            this.facingAngle = this.wanderAngle;
         }
         
         // Update hurt visual
@@ -681,7 +712,7 @@ export class Fighter {
     }
 }
 
-// SpawnBlock class - destructible blocks that spawn specialized enemies
+// SpawnBlock class - destructible blocks that spawn specialized enemies when fighters enter
 export class SpawnBlock {
     constructor(x, y, crystalType) {
         this.x = x;
@@ -692,9 +723,8 @@ export class SpawnBlock {
         this.radius = 30;
         this.xp = 50;
         
-        // Spawn timer based on type
-        this.spawnTimer = 0;
-        this.spawnInterval = (crystalType === 'force') ? 8.0 : 5.0;
+        // Aggro radius - fighters are attracted from this distance
+        this.aggroRadius = 1000;
         
         // Visual
         this.pulsePhase = 0;
@@ -726,38 +756,39 @@ export class SpawnBlock {
     
     update(dt) {
         this.pulsePhase += dt * 2;
-        this.spawnTimer += dt;
         
         if (this.hurtTime > 0) {
             this.hurtTime -= dt;
         }
         
-        // Return spawn info when ready
-        if (this.spawnTimer >= this.spawnInterval) {
-            this.spawnTimer = 0;
-            
-            // Spawn counts based on type
-            const spawnCounts = {
-                heat: 5,   // 5 fiery enemies
-                cold: 3,   // 3 gravitational enemies
-                force: 5   // 5 fast purple enemies
-            };
-            
-            const enemyTypes = {
-                heat: 'fiery',
-                cold: 'gravitational',
-                force: 'fastPurple'
-            };
-            
-            return {
-                count: spawnCounts[this.crystalType],
-                enemyType: enemyTypes[this.crystalType],
-                x: this.x,
-                y: this.y
-            };
-        }
-        
+        // No periodic spawning - spawning is triggered externally when fighters enter
         return null;
+    }
+    
+    /**
+     * Called when a fighter enters the spawn block
+     * Returns spawn info for enemies to create
+     */
+    triggerSpawn() {
+        // Spawn counts based on type
+        const spawnCounts = {
+            heat: 5,   // 5 fiery enemies
+            cold: 3,   // 3 gravitational enemies
+            force: 5   // 5 fast purple enemies
+        };
+        
+        const enemyTypes = {
+            heat: 'fiery',
+            cold: 'gravitational',
+            force: 'fastPurple'
+        };
+        
+        return {
+            count: spawnCounts[this.crystalType],
+            enemyType: enemyTypes[this.crystalType],
+            x: this.x,
+            y: this.y
+        };
     }
     
     render(ctx, camera) {
@@ -1275,8 +1306,8 @@ export class EnemySpawner {
     constructor() {
         this.spawnTimer = 0;
         this.spawnInterval = 1.5; // Faster spawning (was 2.0)
-        this.maxBuilders = 450; // Max builders
-        this.maxFighters = 500; // Max fighters
+        this.maxBuilders = 5000; // Max builders
+        this.maxFighters = 20000; // Max fighters
         this.difficulty = 1;
         this.gameTime = 0;
         
@@ -1312,7 +1343,7 @@ export class EnemySpawner {
         
         // Increase difficulty over time
         this.difficulty = 1 + Math.floor(this.gameTime / 30) * 0.5;
-        this.spawnInterval = Math.max(0.3, 1.5 - this.difficulty * 0.15); // Faster ramp-up
+        this.spawnInterval = Math.max(0.03, 1.5 - this.difficulty * 0.15); // Faster ramp-up
         
         // Get dynamic spawn distances based on camera zoom
         const spawnDist = this.getSpawnDistances(camera);

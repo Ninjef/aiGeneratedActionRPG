@@ -32,7 +32,7 @@ class Game {
         this.enemiesDefeated = 0;
         
         // Performance settings
-        this.maxTotalEnemies = 300; // Global cap on all enemy types combined
+        this.maxTotalEnemies = 20000; // Global cap on all enemy types combined
         
         // Initialize sprite cache for optimized rendering
         spriteCache.init();
@@ -256,9 +256,9 @@ class Game {
             builder.update(dt, this.player.x, this.player.y, this.crystals);
         }
         
-        // Update fighters
+        // Update fighters (pass spawn blocks so fighters can prioritize them)
         for (const fighter of this.fighters) {
-            fighter.update(dt, this.player.x, this.player.y);
+            fighter.update(dt, this.player.x, this.player.y, this.spawnBlocks);
         }
         
         // Check builder-crystal collisions
@@ -281,36 +281,51 @@ class Game {
             }
         }
         
-        // Update spawn blocks and spawn enemies (with global enemy cap)
-        for (const block of this.spawnBlocks) {
-            const spawnInfo = block.update(dt);
-            if (spawnInfo) {
-                // Check if we're over the enemy cap before spawning
-                const currentTotal = this.getTotalEnemyCount();
-                if (currentTotal >= this.maxTotalEnemies) {
-                    continue; // Skip spawning if at cap
-                }
-                
-                // Limit spawn count to not exceed cap
-                const maxCanSpawn = this.maxTotalEnemies - currentTotal;
-                const actualSpawnCount = Math.min(spawnInfo.count, maxCanSpawn);
-                
-                // Spawn enemies around the block
-                for (let i = 0; i < actualSpawnCount; i++) {
-                    const angleOffset = (i / spawnInfo.count) * Math.PI * 2;
-                    const spawnDist = block.radius + 20;
-                    const spawnX = spawnInfo.x + Math.cos(angleOffset) * spawnDist;
-                    const spawnY = spawnInfo.y + Math.sin(angleOffset) * spawnDist;
+        // Check fighter-spawn block collisions (fighters enter towers to spawn enemies)
+        for (let i = this.fighters.length - 1; i >= 0; i--) {
+            const fighter = this.fighters[i];
+            for (const block of this.spawnBlocks) {
+                if (circleCollision(
+                    fighter.x, fighter.y, fighter.radius,
+                    block.x, block.y, block.radius
+                )) {
+                    // Trigger spawn from the block
+                    const spawnInfo = block.triggerSpawn();
                     
-                    if (spawnInfo.enemyType === 'fiery') {
-                        this.fieryEnemies.push(new FieryEnemy(spawnX, spawnY));
-                    } else if (spawnInfo.enemyType === 'gravitational') {
-                        this.gravitationalEnemies.push(new GravitationalEnemy(spawnX, spawnY));
-                    } else if (spawnInfo.enemyType === 'fastPurple') {
-                        this.fastPurpleEnemies.push(new FastPurpleEnemy(spawnX, spawnY));
+                    // Check if we're over the enemy cap before spawning
+                    const currentTotal = this.getTotalEnemyCount();
+                    if (currentTotal < this.maxTotalEnemies) {
+                        // Limit spawn count to not exceed cap
+                        const maxCanSpawn = this.maxTotalEnemies - currentTotal;
+                        const actualSpawnCount = Math.min(spawnInfo.count, maxCanSpawn);
+                        
+                        // Spawn enemies around the block
+                        for (let j = 0; j < actualSpawnCount; j++) {
+                            const angleOffset = (j / spawnInfo.count) * Math.PI * 2;
+                            const spawnDist = block.radius + 20;
+                            const spawnX = spawnInfo.x + Math.cos(angleOffset) * spawnDist;
+                            const spawnY = spawnInfo.y + Math.sin(angleOffset) * spawnDist;
+                            
+                            if (spawnInfo.enemyType === 'fiery') {
+                                this.fieryEnemies.push(new FieryEnemy(spawnX, spawnY));
+                            } else if (spawnInfo.enemyType === 'gravitational') {
+                                this.gravitationalEnemies.push(new GravitationalEnemy(spawnX, spawnY));
+                            } else if (spawnInfo.enemyType === 'fastPurple') {
+                                this.fastPurpleEnemies.push(new FastPurpleEnemy(spawnX, spawnY));
+                            }
+                        }
                     }
+                    
+                    // Remove the fighter (consumed by the tower)
+                    this.fighters.splice(i, 1);
+                    break;
                 }
             }
+        }
+        
+        // Update spawn blocks (no longer spawns periodically - only via fighter collision)
+        for (const block of this.spawnBlocks) {
+            block.update(dt);
         }
         
         // Update fiery enemies and create fire trails
@@ -643,8 +658,8 @@ class Game {
                 const progress = this.player.getPowerProgress(rune.powerId);
                 if (progress && powerDef) {
                     const floatingText = new FloatingText(
-                        rune.x,
-                        rune.y,
+                        this.player.x,
+                        this.player.y - 400, // Position far above the player
                         powerDef.name,
                         progress.level,
                         progress.runesProgress,
