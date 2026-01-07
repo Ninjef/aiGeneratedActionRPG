@@ -1,17 +1,11 @@
 // UI management
 
-import { POWERS, PowerManager } from './powers.js';
+import { POWERS } from './powers.js';
 import { PASSIVE_UPGRADES } from './passiveUpgrades.js';
+import { Player } from './player.js';
 
 export class UI {
     constructor() {
-        this.crystalDisplay = {
-            heat: document.getElementById('heat-count'),
-            cold: document.getElementById('cold-count'),
-            force: document.getElementById('force-count'),
-            total: document.getElementById('total-crystals')
-        };
-        
         // XP display elements
         this.xpDisplay = {
             level: document.getElementById('player-level'),
@@ -21,19 +15,14 @@ export class UI {
         
         this.powersDisplay = document.getElementById('powers-display');
         this.passiveUpgradesDisplay = document.getElementById('passive-upgrades-display');
-        this.levelUpModal = document.getElementById('level-up-modal');
-        this.powerOptions = document.getElementById('power-options');
         this.passiveUpgradeModal = document.getElementById('passive-upgrade-modal');
         this.passiveOptions = document.getElementById('passive-options');
         this.gameOverModal = document.getElementById('game-over-modal');
         this.startScreen = document.getElementById('start-screen');
         this.pauseScreen = document.getElementById('pause-screen');
-        this.startingPowerModal = document.getElementById('starting-power-modal');
-        this.startingPowerOptions = document.getElementById('starting-power-options');
         this.survivalTime = document.getElementById('survival-time');
         this.enemiesDefeated = document.getElementById('enemies-defeated');
         
-        this.onPowerSelected = null;
         this.onRestart = null;
         this.onStart = null;
         
@@ -50,21 +39,29 @@ export class UI {
         });
     }
 
-    updateCrystals(crystals) {
-        this.crystalDisplay.heat.textContent = crystals.heat;
-        this.crystalDisplay.cold.textContent = crystals.cold;
-        this.crystalDisplay.force.textContent = crystals.force;
-        this.crystalDisplay.total.textContent = crystals.heat + crystals.cold + crystals.force;
-    }
-
     updatePowers(powers) {
         this.powersDisplay.innerHTML = '';
         
         for (const power of powers) {
             const def = POWERS[power.id];
+            if (!def) continue;
+            
             const div = document.createElement('div');
             div.className = `power-item ${def.category}`;
-            div.textContent = `${def.name} Lv.${power.level}`;
+            
+            // Calculate progress toward next level
+            const runesForCurrentLevel = Player.getTotalRunesForLevel(power.level);
+            const runesForNextLevel = Player.getTotalRunesForLevel(power.level + 1);
+            const runesNeeded = runesForNextLevel - runesForCurrentLevel;
+            const runesProgress = power.runesCollected - runesForCurrentLevel;
+            
+            // Show power name, level, and rune progress
+            div.innerHTML = `
+                <span class="power-name">${def.name} Lv.${power.level}</span>
+                <span class="power-progress">[${runesProgress}/${runesNeeded}]</span>
+            `;
+            div.title = `${def.description}\n\nCollect ${runesNeeded - runesProgress} more runes to level up.`;
+            
             this.powersDisplay.appendChild(div);
         }
     }
@@ -123,37 +120,6 @@ export class UI {
         this.passiveUpgradeModal.classList.add('hidden');
     }
 
-    showLevelUp(options, existingPowers, callback) {
-        this.levelUpModal.classList.remove('hidden');
-        this.powerOptions.innerHTML = '';
-        
-        for (const option of options) {
-            const div = document.createElement('div');
-            div.className = `power-option ${option.category}`;
-            
-            const levelText = option.currentLevel > 0 
-                ? `Level ${option.currentLevel} → ${option.currentLevel + 1}`
-                : 'New!';
-            
-            div.innerHTML = `
-                <h3>${option.name}</h3>
-                <p>${option.description}</p>
-                <div class="level">${levelText}</div>
-            `;
-            
-            div.addEventListener('click', () => {
-                this.levelUpModal.classList.add('hidden');
-                callback(option);
-            });
-            
-            this.powerOptions.appendChild(div);
-        }
-    }
-
-    hideLevelUp() {
-        this.levelUpModal.classList.add('hidden');
-    }
-
     showGameOver(survivalTime, enemiesDefeated) {
         this.gameOverModal.classList.remove('hidden');
         this.survivalTime.textContent = Math.floor(survivalTime);
@@ -178,33 +144,6 @@ export class UI {
 
     hidePauseScreen() {
         this.pauseScreen.classList.add('hidden');
-    }
-
-    showStartingPowerSelection(options, callback) {
-        this.startingPowerModal.classList.remove('hidden');
-        this.startingPowerOptions.innerHTML = '';
-        
-        for (const option of options) {
-            const div = document.createElement('div');
-            div.className = `power-option ${option.category}`;
-            
-            div.innerHTML = `
-                <h3>${option.name}</h3>
-                <p>${option.description}</p>
-                <div class="level">New!</div>
-            `;
-            
-            div.addEventListener('click', () => {
-                this.startingPowerModal.classList.add('hidden');
-                callback(option);
-            });
-            
-            this.startingPowerOptions.appendChild(div);
-        }
-    }
-
-    hideStartingPowerSelection() {
-        this.startingPowerModal.classList.add('hidden');
     }
 }
 

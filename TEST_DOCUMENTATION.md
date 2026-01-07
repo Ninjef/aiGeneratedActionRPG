@@ -2,6 +2,14 @@
 
 This document describes the unit testing setup and test coverage for Horde Survival RPG.
 
+## Recent Game Mechanics Changes
+
+**Note:** The following features were recently added/changed but are not covered by unit tests (they involve UI/DOM):
+
+1. **No Base Attack** - The player has no default attack. Powers are obtained by collecting power runes.
+2. **Power Rune System** - Crystals spawn power runes when touched. Collecting runes grants/upgrades powers.
+3. **Pause Functionality** - Pressing ESC pauses/unpauses the game (displays a pause screen).
+
 ## Test Framework
 
 - **Vitest** - A fast, ESM-native test runner compatible with the project's ES modules
@@ -29,10 +37,13 @@ npm run test:coverage
 |------|-------|-------------|
 | `tests/utils.test.js` | 28 | Math utilities and helper functions |
 | `tests/collision.test.js` | 19 | Collision detection algorithms |
-| `tests/camera.test.js` | 24 | Camera coordinate transforms and zoom |
-| `tests/player.test.js` | 39 | Player state, movement, damage, powers |
-| `tests/enemy.test.js` | 46 | Builder, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, EnemySpawner |
-| **Total** | **152** | |
+| `tests/camera.test.js` | 23 | Camera coordinate transforms and zoom |
+| `tests/player.test.js` | 42 | Player state, movement, damage, power rune system |
+| `tests/enemy.test.js` | 49 | Builder, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, EnemySpawner |
+| `tests/powers.test.js` | 7 | Power definitions and PowerManager |
+| `tests/passiveUpgrades.test.js` | 10 | Passive upgrade system |
+| `tests/projectile.test.js` | 9 | Projectile and effect classes |
+| **Total** | **187** | |
 
 ## Test Structure
 
@@ -182,15 +193,40 @@ Tests for `js/player.js` - player state management and behavior.
 
 | Method | Tests | What's Verified |
 |--------|-------|-----------------|
-| `constructor` | 6 | Position, stats, movement, crystals, powers |
-| `totalCrystals` (getter) | 2 | Sum calculation, zero case |
+| `constructor` | 3 | Position, stats, movement, powers |
 | `setMovement(dx, dy)` | 5 | Direction setting, diagonal normalization |
 | `update(dt)` | 5 | Position change, invincibility decay, rotation |
-| `takeDamage(amount)` | 6 | Health reduction, damage reduction, invincibility |
+| `takeDamage(amount)` | 7 | Health reduction, damage reduction, invincibility |
 | `heal(amount)` | 3 | Health increase, max health cap |
-| `collectCrystal(type)` | 6 | Crystal increment, valid/invalid types |
-| `resetCrystals()` | 1 | All crystals reset to zero |
 | `addPower(power)` | 4 | Power addition, level increment, multiple powers |
+| `getTotalRunesForLevel(level)` | 4 | Triangular number calculation (1, 3, 6, 10...) |
+| `getRunesNeededForNextLevel(level)` | 3 | Runes to reach next level |
+| `collectPowerRune(powerId)` | 5 | Power acquisition, rune accumulation, leveling |
+| `getPowerProgress(powerId)` | 3 | Progress tracking for UI |
+
+### Power Rune System Tests
+
+```javascript
+describe('Power Rune System', () => {
+    it('should grant power at level 1 on first rune', () => {
+        const result = player.collectPowerRune('fireballBarrage', false);
+        
+        expect(result.isNew).toBe(true);
+        expect(result.power.level).toBe(1);
+        expect(result.power.runesCollected).toBe(1);
+    });
+
+    it('should level up when enough runes collected', () => {
+        // Level 1: 1 rune, Level 2: 3 total (need 2 more)
+        player.collectPowerRune('fireballBarrage', false);
+        player.collectPowerRune('fireballBarrage', false);
+        const result = player.collectPowerRune('fireballBarrage', false);
+        
+        expect(result.leveledUp).toBe(true);
+        expect(result.power.level).toBe(2);
+    });
+});
+```
 
 ### Example Test
 
@@ -345,21 +381,28 @@ describe('Builder', () => {
 ### What's Tested
 
 1. **Pure Logic Functions** - Math utilities, collision detection
-2. **State Management** - Player health, crystals, powers, enemy status
+2. **State Management** - Player health, power rune progression, enemy status
 3. **Coordinate Transforms** - Camera world-to-screen and back
 4. **Game Mechanics** - Damage, healing, movement, spawning rules
+5. **Power Rune System** - Triangular progression, power acquisition, leveling
 
 ### What's Not Tested
 
 1. **Rendering** - Canvas drawing operations (would require canvas mocking)
+   - Power rune icons
+   - Crystal nova effects
 2. **DOM Manipulation** - UI class (would require DOM environment)
+   - Pause screen display
+   - Game over screen
+   - Powers display with rune progress
 3. **Input Handling** - Keyboard events
+   - WASD/Arrow key movement
+   - ESC key pause/unpause
 4. **Game Loop Integration** - Full game orchestration with all systems
 5. **Status Effects** - StatusEffect and StatusEffectManager classes (pure logic, could be tested)
-6. **Passive Upgrades** - PassiveUpgrades module (pure logic, could be tested)
-7. **XP System** - Player XP and leveling mechanics (could be tested)
-8. **Fire Trail Effects** - AreaEffect instances created by FieryEnemies
-9. **Crystal Dropping** - Spawn block → crystal conversion on destruction
+6. **Fire Trail Effects** - AreaEffect instances created by FieryEnemies
+7. **Crystal Nova** - Ring effect when crystals are touched
+8. **PowerRune Class** - Physics, lifetime, collection detection (pure logic, could be tested)
 
 ### Mocking Strategy
 

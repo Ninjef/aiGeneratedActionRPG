@@ -24,19 +24,6 @@ describe('Player', () => {
         });
     });
 
-    describe('totalCrystals getter', () => {
-        it('should return sum of all crystal types', () => {
-            player.crystals.heat = 2;
-            player.crystals.cold = 3;
-            player.crystals.force = 1;
-            expect(player.totalCrystals).toBe(6);
-        });
-
-        it('should return 0 when no crystals', () => {
-            expect(player.totalCrystals).toBe(0);
-        });
-    });
-
     describe('setMovement', () => {
         it('should set movement direction', () => {
             player.setMovement(1, 0);
@@ -164,52 +151,6 @@ describe('Player', () => {
         });
     });
 
-    describe('collectCrystal', () => {
-        it('should increment heat crystal count', () => {
-            player.collectCrystal('heat');
-            expect(player.crystals.heat).toBe(1);
-        });
-
-        it('should increment cold crystal count', () => {
-            player.collectCrystal('cold');
-            expect(player.crystals.cold).toBe(1);
-        });
-
-        it('should increment force crystal count', () => {
-            player.collectCrystal('force');
-            expect(player.crystals.force).toBe(1);
-        });
-
-        it('should return true for valid crystal type', () => {
-            expect(player.collectCrystal('heat')).toBe(true);
-        });
-
-        it('should return false for invalid crystal type', () => {
-            expect(player.collectCrystal('invalid')).toBe(false);
-        });
-
-        it('should accumulate crystals', () => {
-            player.collectCrystal('heat');
-            player.collectCrystal('heat');
-            player.collectCrystal('heat');
-            expect(player.crystals.heat).toBe(3);
-        });
-    });
-
-    describe('resetCrystals', () => {
-        it('should reset all crystal counts to zero', () => {
-            player.crystals.heat = 5;
-            player.crystals.cold = 3;
-            player.crystals.force = 2;
-            
-            player.resetCrystals();
-            
-            expect(player.crystals.heat).toBe(0);
-            expect(player.crystals.cold).toBe(0);
-            expect(player.crystals.force).toBe(0);
-        });
-    });
-
     describe('addPower', () => {
         it('should add new power to powers array', () => {
             const power = { id: 'fireball', passive: false };
@@ -218,6 +159,7 @@ describe('Player', () => {
             expect(player.powers).toHaveLength(1);
             expect(player.powers[0].id).toBe('fireball');
             expect(player.powers[0].level).toBe(1);
+            expect(player.powers[0].runesCollected).toBe(1);
         });
 
         it('should increment level of existing power', () => {
@@ -243,6 +185,126 @@ describe('Player', () => {
             player.addPower({ id: 'force', passive: true });
             
             expect(player.powers).toHaveLength(3);
+        });
+    });
+
+    describe('Power Rune System', () => {
+        describe('getTotalRunesForLevel (static)', () => {
+            it('should return 1 for level 1', () => {
+                expect(Player.getTotalRunesForLevel(1)).toBe(1);
+            });
+
+            it('should return 3 for level 2 (1+2)', () => {
+                expect(Player.getTotalRunesForLevel(2)).toBe(3);
+            });
+
+            it('should return 6 for level 3 (1+2+3)', () => {
+                expect(Player.getTotalRunesForLevel(3)).toBe(6);
+            });
+
+            it('should return 10 for level 4 (1+2+3+4)', () => {
+                expect(Player.getTotalRunesForLevel(4)).toBe(10);
+            });
+        });
+
+        describe('getRunesNeededForNextLevel (static)', () => {
+            it('should return 2 to go from level 1 to 2', () => {
+                expect(Player.getRunesNeededForNextLevel(1)).toBe(2);
+            });
+
+            it('should return 3 to go from level 2 to 3', () => {
+                expect(Player.getRunesNeededForNextLevel(2)).toBe(3);
+            });
+
+            it('should return 4 to go from level 3 to 4', () => {
+                expect(Player.getRunesNeededForNextLevel(3)).toBe(4);
+            });
+        });
+
+        describe('collectPowerRune', () => {
+            it('should grant power at level 1 on first rune', () => {
+                const result = player.collectPowerRune('fireballBarrage', false);
+                
+                expect(result.isNew).toBe(true);
+                expect(result.leveledUp).toBe(false);
+                expect(result.power.level).toBe(1);
+                expect(result.power.runesCollected).toBe(1);
+                expect(player.powers).toHaveLength(1);
+            });
+
+            it('should increment rune count without leveling up', () => {
+                player.collectPowerRune('fireballBarrage', false);
+                const result = player.collectPowerRune('fireballBarrage', false);
+                
+                expect(result.isNew).toBe(false);
+                expect(result.leveledUp).toBe(false);
+                expect(result.power.level).toBe(1);
+                expect(result.power.runesCollected).toBe(2);
+            });
+
+            it('should level up when enough runes collected', () => {
+                // First rune: level 1 (1 total)
+                player.collectPowerRune('fireballBarrage', false);
+                // Second rune: still level 1 (2 total, need 3 for level 2)
+                player.collectPowerRune('fireballBarrage', false);
+                // Third rune: level up to 2 (3 total = 1+2)
+                const result = player.collectPowerRune('fireballBarrage', false);
+                
+                expect(result.isNew).toBe(false);
+                expect(result.leveledUp).toBe(true);
+                expect(result.power.level).toBe(2);
+                expect(result.power.runesCollected).toBe(3);
+            });
+
+            it('should track multiple different powers separately', () => {
+                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('iceShards', false);
+                
+                expect(player.powers).toHaveLength(2);
+                expect(player.powers.find(p => p.id === 'fireballBarrage').level).toBe(1);
+                expect(player.powers.find(p => p.id === 'iceShards').level).toBe(1);
+            });
+
+            it('should level up from 2 to 3 correctly', () => {
+                // Level 1: 1 rune
+                player.collectPowerRune('fireballBarrage', false);
+                // Level 2: need 2 more (3 total)
+                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('fireballBarrage', false);
+                // Level 3: need 3 more (6 total)
+                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('fireballBarrage', false);
+                const result = player.collectPowerRune('fireballBarrage', false);
+                
+                expect(result.leveledUp).toBe(true);
+                expect(result.power.level).toBe(3);
+                expect(result.power.runesCollected).toBe(6);
+            });
+        });
+
+        describe('getPowerProgress', () => {
+            it('should return null for unknown power', () => {
+                expect(player.getPowerProgress('unknownPower')).toBeNull();
+            });
+
+            it('should return correct progress at level 1', () => {
+                player.collectPowerRune('fireballBarrage', false);
+                const progress = player.getPowerProgress('fireballBarrage');
+                
+                expect(progress.level).toBe(1);
+                expect(progress.runesProgress).toBe(0); // 1 - 1 = 0
+                expect(progress.runesNeeded).toBe(2); // need 2 more for level 2
+            });
+
+            it('should return correct progress mid-level', () => {
+                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('fireballBarrage', false);
+                const progress = player.getPowerProgress('fireballBarrage');
+                
+                expect(progress.level).toBe(1);
+                expect(progress.runesProgress).toBe(1); // 2 - 1 = 1
+                expect(progress.runesNeeded).toBe(2);
+            });
         });
     });
 });

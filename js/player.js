@@ -22,14 +22,7 @@ export class Player {
         this.vx = 0;
         this.vy = 0;
         
-        // Crystal inventory
-        this.crystals = {
-            heat: 0,
-            cold: 0,
-            force: 0
-        };
-        
-        // Active powers
+        // Active powers - each power has { id, level, runesCollected, passive }
         this.powers = [];
         
         // Defense modifier (from powers and passive upgrades)
@@ -54,10 +47,6 @@ export class Player {
         
         // Status effects (supercharge, etc.)
         this.statusEffects = new StatusEffectManager();
-    }
-
-    get totalCrystals() {
-        return this.crystals.heat + this.crystals.cold + this.crystals.force;
     }
 
     setMovement(dx, dy) {
@@ -109,29 +98,87 @@ export class Player {
         this.health = Math.min(this.maxHealth, this.health + amount);
     }
 
-    collectCrystal(type) {
-        if (this.crystals[type] !== undefined) {
-            this.crystals[type]++;
-            return true;
+    /**
+     * Calculate the total runes needed to reach a given level (triangular number)
+     * Level 1: 1 rune, Level 2: 1+2=3 runes, Level 3: 1+2+3=6 runes, etc.
+     */
+    static getTotalRunesForLevel(level) {
+        return (level * (level + 1)) / 2;
+    }
+
+    /**
+     * Calculate runes needed to go from current level to next level
+     */
+    static getRunesNeededForNextLevel(currentLevel) {
+        return currentLevel + 1;
+    }
+
+    /**
+     * Get the progress info for a power (for UI display)
+     */
+    getPowerProgress(powerId) {
+        const power = this.powers.find(p => p.id === powerId);
+        if (!power) return null;
+        
+        const runesForCurrentLevel = Player.getTotalRunesForLevel(power.level);
+        const runesForNextLevel = Player.getTotalRunesForLevel(power.level + 1);
+        const runesNeeded = runesForNextLevel - runesForCurrentLevel;
+        const runesProgress = power.runesCollected - runesForCurrentLevel;
+        
+        return {
+            level: power.level,
+            runesProgress: runesProgress,
+            runesNeeded: runesNeeded
+        };
+    }
+
+    /**
+     * Collect a power rune - either grants a new power or progresses toward next level
+     * Returns { isNew: boolean, leveledUp: boolean, power: object }
+     */
+    collectPowerRune(powerId, passive = false) {
+        const existing = this.powers.find(p => p.id === powerId);
+        
+        if (!existing) {
+            // First rune of this power - grant the power at level 1
+            const newPower = {
+                id: powerId,
+                level: 1,
+                runesCollected: 1,
+                passive: passive
+            };
+            this.powers.push(newPower);
+            return { isNew: true, leveledUp: false, power: newPower };
         }
-        return false;
+        
+        // Already have this power - add to rune count
+        existing.runesCollected++;
+        
+        // Check if we have enough runes to level up
+        const runesNeededForNextLevel = Player.getTotalRunesForLevel(existing.level + 1);
+        
+        if (existing.runesCollected >= runesNeededForNextLevel) {
+            existing.level++;
+            return { isNew: false, leveledUp: true, power: existing };
+        }
+        
+        return { isNew: false, leveledUp: false, power: existing };
     }
 
-    resetCrystals() {
-        this.crystals.heat = 0;
-        this.crystals.cold = 0;
-        this.crystals.force = 0;
-    }
-
+    /**
+     * Legacy method for adding a power directly (used for testing/cheats)
+     */
     addPower(power) {
         // Check if we already have this power
         const existing = this.powers.find(p => p.id === power.id);
         if (existing) {
             existing.level++;
+            existing.runesCollected = Player.getTotalRunesForLevel(existing.level);
             return existing;
         }
         
         power.level = 1;
+        power.runesCollected = 1;
         this.powers.push(power);
         return power;
     }

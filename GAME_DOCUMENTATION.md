@@ -16,6 +16,12 @@ python3 -m http.server 8080
 # Open http://localhost:8080
 ```
 
+## Controls
+
+- **WASD / Arrow Keys** - Move player
+- **ESC** - Pause/unpause game
+- **Mouse** - Click to select powers and upgrades
+
 ## Running Tests
 
 ```bash
@@ -35,10 +41,11 @@ npm run test:watch # Watch mode for development
 │   └── style.css       # All styling for UI elements and modals
 ├── js/
 │   ├── game.js         # Main game loop, initialization, orchestration
-│   ├── player.js       # Player class (movement, health, crystal inventory)
+│   ├── player.js       # Player class (movement, health, power progression)
 │   ├── enemy.js        # Enemy class + EnemySpawner + Champion class
 │   ├── crystal.js      # Crystal class + CrystalSpawner
 │   ├── powers.js       # Power definitions + PowerManager
+│   ├── powerRune.js    # PowerRune class for collectible power items
 │   ├── projectile.js   # Projectile, AreaEffect, RingEffect, OrbitalShield classes
 │   ├── statusEffects.js # StatusEffect + StatusEffectManager for temporary buffs
 │   ├── camera.js       # Camera class for infinite world viewport + zoom
@@ -59,12 +66,18 @@ npm run test:watch # Watch mode for development
 
 The `Game` class orchestrates everything:
 
-1. **Input Handling** - WASD/Arrow keys set player velocity
+1. **Input Handling** - WASD/Arrow keys set player velocity, ESC to pause
 2. **Entity Updates** - Player, enemies, crystals, projectiles, effects
 3. **Collision Detection** - Player-enemy, projectile-enemy, crystal collection
 4. **Spawning** - EnemySpawner and CrystalSpawner manage entity creation
 5. **Power System** - PowerManager handles cooldowns and spell casting
 6. **Rendering** - Draw grid, effects, entities, UI elements
+
+**Game Start Flow:**
+1. Click "Start Game" on start screen
+2. Game begins with 4 power runes spawned near the player
+3. Player starts with no powers - must collect runes to gain abilities
+4. Touch crystals to trigger explosions and spawn more power runes
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -144,6 +157,7 @@ All game entities share common patterns:
 | GravitationalEnemy | `x, y` | 18 | Player chase, mutual gravity | Blue circle + aura |
 | FastPurpleEnemy | `x, y` | 10 | High-speed chase | Purple circle + speed lines |
 | Crystal | `x, y` | 15 | Animation | Diamond shape + glow |
+| PowerRune | `x, y` | 18 | Physics, lifetime, fade | Unique icon per power |
 | Projectile | `x, y` | 6-12 | Movement, lifetime | Circle + trail |
 
 All entity rendering is scaled by `camera.zoom` for proper proportions at any zoom level.
@@ -221,26 +235,79 @@ Force spawn blocks: 8.0 seconds
 
 - Three types: `heat`, `cold`, `force`
 - Spawn dynamically based on visible screen area (30-90% of half diagonal)
-- Collected on contact (30 unit collection radius)
 - Each crystal has `aggroRadius` of 350 units that attracts builder enemies
 - Max 15 crystals in world at once
 - Despawn when 150% of visible diagonal from player
 - **Builders convert crystals into spawn blocks on contact**
 - **Spawn blocks drop crystals when destroyed**
-- **Collecting a crystal triggers a Supercharge effect** (see Status Effect System)
+- **Touching a crystal triggers a nova explosion and spawns power runes**
 
-### Power System (Crystal-Based)
+### Power Rune System
 
-#### Level-Up Flow
+Powers are obtained and upgraded by collecting **Power Runes** - glowing icons that spawn when crystals are touched.
 
-1. Player collects 5 crystals (any mix of types)
-2. Game pauses, shows 3 power options
-3. Each option's category is weighted by crystal ratio:
-   - Example: 2 cold + 3 force → 40% cold options, 60% force options
-4. Player selects a power
-5. Crystals reset to 0, game resumes
+#### Crystal Collection Flow
 
-**Note:** This is separate from the XP-based passive upgrade system.
+When player touches a crystal:
+1. Crystal is removed
+2. **Nova explosion** damages nearby enemies (matching crystal's element color)
+3. **3 Power Runes** fly outward from the crystal's position
+   - 1 rune is guaranteed from the crystal's element
+   - 2 runes are random from all 9 powers
+4. Runes land nearby and remain for **6 seconds** before fading away
+5. Player must collect runes before they disappear
+
+#### Game Start
+
+At game start, **4 power runes** spawn near the player with extended lifetime (15 seconds). The player starts with no powers and must collect runes to gain abilities.
+
+#### Power Progression
+
+Powers use **triangular number** progression for leveling:
+
+| Level | Runes Needed | Total Runes |
+|-------|--------------|-------------|
+| 1 | 1 | 1 |
+| 2 | 2 more | 3 |
+| 3 | 3 more | 6 |
+| 4 | 4 more | 10 |
+| N | N more | N*(N+1)/2 |
+
+```javascript
+// Power structure in player.powers:
+{
+  id: 'fireballBarrage',
+  level: 2,
+  runesCollected: 3,  // Total runes collected for this power
+  passive: false
+}
+
+// Progression calculation:
+Player.getTotalRunesForLevel(level)  // Returns triangular number
+Player.getRunesNeededForNextLevel(currentLevel)  // Returns currentLevel + 1
+```
+
+#### PowerRune Class (`powerRune.js`)
+
+Each power rune has:
+- **Position/Physics**: Flies outward from crystal, decelerates, lands
+- **Lifetime**: 6 seconds (15 for starting runes), with fade and blink effect
+- **Unique Icon**: Each of the 9 powers has a distinctive icon
+- **Collection radius**: 35 units
+
+**Power Icons:**
+
+| Power | Icon |
+|-------|------|
+| Fireball | Flame shape |
+| Magma Pool | Bubbling ellipse |
+| Inferno Ring | Concentric circles |
+| Ice Shards | Crystal spike |
+| Frost Nova | Snowflake |
+| Frozen Armor | Shield with frost |
+| Force Bolt | Arrow shape |
+| Gravity Well | Spiral vortex |
+| Orbital Shields | Orbiting dots |
 
 #### Power Definitions (`POWERS` object in `powers.js`)
 
@@ -332,20 +399,18 @@ When player levels up via XP, they choose from 3 random passive upgrades:
 
 ### Status Effect System (`statusEffects.js`)
 
-A reusable framework for temporary effects that modify gameplay.
+A reusable framework for temporary effects that modify gameplay. Currently used for enemy slow effects and potential future buffs.
 
 #### StatusEffect Class
 
 ```javascript
 // Each status effect has:
 {
-  type: 'supercharge',      // Effect identifier
-  category: 'heat',         // Crystal category (or null for global)
-  duration: 7.0,            // Total duration in seconds
-  remaining: 7.0,           // Time left
-  config: {                 // Effect-specific data
-    bonusLevels: 3          // Power level bonus for supercharge
-  }
+  type: 'slow',             // Effect identifier
+  category: null,           // Optional category
+  duration: 2.0,            // Total duration in seconds
+  remaining: 2.0,           // Time left
+  config: { }               // Effect-specific data
 }
 ```
 
@@ -358,22 +423,6 @@ Attached to the Player, manages all active status effects:
 - `getBonusLevels(category)` - Get total power bonus for a category
 - `hasEffect(type, category)` - Check if effect is active
 - `getActiveEffects()` - Get all effects for UI display
-
-#### Supercharge Effect
-
-When the player collects a crystal:
-
-1. A **supercharge effect** is applied for that crystal's category
-2. All powers of that category gain **+3 bonus levels** for **7 seconds**
-3. This affects damage, cooldowns, projectile counts, and all level-scaled stats
-4. Collecting another crystal of the same type **refreshes the duration**
-
-```javascript
-// Example: Collecting a heat crystal
-// If player has Fireball Barrage at level 2:
-// → Effective level becomes 2 + 3 = 5 for 7 seconds
-// → More fireballs, faster cooldown, higher damage
-```
 
 ### Effect Classes (`projectile.js`)
 
@@ -418,8 +467,11 @@ spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 | Player radius | 20 | `player.js` |
 | Player max health | 100 | `player.js` |
 | Camera zoom | 0.40 | `camera.js` |
-| Base attack cooldown | 0.8s | `game.js` |
-| Crystals to level up | 5 | `game.js` |
+| Power rune lifetime | 6.0s | `powerRune.js` |
+| Starting rune lifetime | 15.0s | `game.js` |
+| Runes per crystal | 3 | `game.js` |
+| Starting runes | 4 | `game.js` |
+| Crystal nova damage | 30 | `game.js` |
 | Crystal aggro radius | 350 | `crystal.js` |
 | Max builders | 150 | `enemy.js` |
 | Max crystals | 15 | `crystal.js` |
@@ -428,9 +480,6 @@ spawnCount = min(5, ceil(difficulty) + 1)  // More builders per spawn (2-5)
 | Spawn block XP | 50 | `enemy.js` |
 | Fire trail duration | 9.0s | `enemy.js` |
 | Gravity range | 100 | `enemy.js` |
-| Supercharge duration | 7.0s | `statusEffects.js` |
-| Supercharge bonus levels | +3 | `statusEffects.js` |
-| Projectile lifetime (base) | 3.5s | `game.js` |
 | Projectile lifetime (powers) | 3-3.5s | `powers.js` |
 
 Note: Enemy/crystal spawn and despawn distances are now **dynamically calculated** based on camera zoom and screen size.
@@ -439,12 +488,11 @@ Note: Enemy/crystal spawn and despawn distances are now **dynamically calculated
 
 The UI class manages all DOM elements:
 
-- **Crystal display** - Shows count of each crystal type + total (max 5)
 - **XP bar** - Shows current XP, next level requirement, and player level (gold-themed)
-- **Powers display** - Lists active powers with levels (crystal-based powers)
+- **Powers display** - Lists active powers with levels and rune progress (e.g., "Fireball Lv.2 [1/3]")
 - **Passive upgrades display** - Shows acquired passive upgrades with stack counts
-- **Level-up modal** - Power selection on crystal level up (blue-themed)
 - **Passive upgrade modal** - Passive upgrade selection on XP level up (gold-themed)
+- **Pause screen** - Shows when ESC is pressed, displays "PAUSED" message
 - **Game over modal** - Shows survival time and enemies defeated
 - **Start screen** - Initial game start
 
@@ -455,27 +503,29 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 1. Grid background (scrolls with camera)
 2. Ambient particles
 3. Area effects (magma pools, gravity wells, frost nova, fire trails)
-4. Ring effects (inferno ring)
+4. Ring effects (inferno ring, crystal nova)
 5. Crystals
-6. Builders
-7. Spawn blocks
-8. Fiery enemies
-9. Gravitational enemies
-10. Fast purple enemies
-11. Orbital shields
-12. Player
-13. Player projectiles
-14. Vignette overlay
-15. Game timer (top center)
+6. Power runes
+7. Builders
+8. Spawn blocks
+9. Fiery enemies
+10. Gravitational enemies
+11. Fast purple enemies
+12. Orbital shields
+13. Player
+14. Player projectiles
+15. Vignette overlay
+16. Game timer (top center)
 
 ## Adding New Content
 
-### New Power (Crystal-Based)
+### New Power
 
 1. Add definition to `POWERS` object in `powers.js`
 2. Add `castX()` method in `PowerManager`
 3. Add case to `castPower()` switch statement
 4. If passive, add case to `updatePassivePower()`
+5. Add icon definition to `POWER_ICONS` in `powerRune.js`
 
 ### New Passive Upgrade (XP-Based)
 
@@ -514,4 +564,4 @@ All UI elements are defined in `index.html` and styled in `style.css`.
 - No audio
 - No particle system (effects are simple shapes)
 - Single player only
-- No pause menu (only auto-pause on level up)
+- Minimal pause screen (no pause menu with options)

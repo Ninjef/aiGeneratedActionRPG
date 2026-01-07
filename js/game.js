@@ -3,13 +3,13 @@
 import { Player } from './player.js';
 import { Camera } from './camera.js';
 import { Builder, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy } from './enemy.js';
-import { Crystal, CrystalSpawner } from './crystal.js';
+import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
 import { Projectile, AreaEffect, RingEffect } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
+import { PowerRune } from './powerRune.js';
 import { UI } from './ui.js';
 import { circleCollision } from './collision.js';
-import { distance, angle, randomRange } from './utils.js';
-import { createSuperchargeEffect } from './statusEffects.js';
+import { distance, angle, randomRange, randomChoice } from './utils.js';
 import { generatePassiveUpgradeOptions } from './passiveUpgrades.js';
 
 class Game {
@@ -60,8 +60,7 @@ class Game {
     
     togglePause() {
         // Don't pause if a modal is open
-        if (!this.ui.levelUpModal.classList.contains('hidden') ||
-            !this.ui.passiveUpgradeModal.classList.contains('hidden')) {
+        if (!this.ui.passiveUpgradeModal.classList.contains('hidden')) {
             return;
         }
         
@@ -89,6 +88,7 @@ class Game {
         this.gravitationalEnemies = [];
         this.fastPurpleEnemies = [];
         this.crystals = [];
+        this.powerRunes = [];
         this.projectiles = [];
         this.areaEffects = [];
         this.ringEffects = [];
@@ -106,10 +106,6 @@ class Game {
         );
         // Set all enemy arrays for power manager
         this.updatePowerManagerEnemies();
-        
-        // Base attack
-        this.baseAttackCooldown = 0.8;
-        this.baseAttackTimer = 0;
         
         // Ambient particles for background
         this.ambientParticles = [];
@@ -141,24 +137,52 @@ class Game {
 
     startGame() {
         this.ui.hideStartScreen();
+        this.init();
         
-        // Show starting power selection from a random element
-        const elements = ['heat', 'cold', 'force'];
-        const randomElement = elements[Math.floor(Math.random() * elements.length)];
-        const options = PowerManager.generatePowerOptions(randomElement, []);
+        // Spawn starting power runes near the player
+        this.spawnStartingRunes();
         
-        this.ui.showStartingPowerSelection(options, (selectedPower) => {
-            this.init();
-            // Give the player the selected starting power
-            this.player.addPower({ id: selectedPower.id, passive: selectedPower.passive });
-            this.lastTime = performance.now();
-            requestAnimationFrame((t) => this.gameLoop(t));
-        });
+        this.lastTime = performance.now();
+        requestAnimationFrame((t) => this.gameLoop(t));
+    }
+
+    /**
+     * Spawn power runes near the player at game start
+     */
+    spawnStartingRunes() {
+        // Get all power IDs
+        const allPowerIds = Object.keys(POWERS);
+        
+        // Spawn 4 runes around the player in a circle
+        const numRunes = 4;
+        const spawnRadius = 150;
+        
+        for (let i = 0; i < numRunes; i++) {
+            const runeAngle = (i / numRunes) * Math.PI * 2 + Math.PI / 4;
+            const spawnX = this.player.x + Math.cos(runeAngle) * spawnRadius;
+            const spawnY = this.player.y + Math.sin(runeAngle) * spawnRadius;
+            
+            // Pick a random power
+            const powerId = randomChoice(allPowerIds);
+            
+            // Create rune at position (no velocity, already "landed")
+            const rune = new PowerRune(spawnX, spawnY, powerId, 0);
+            rune.vx = 0;
+            rune.vy = 0;
+            rune.lifetime = 15.0; // Extra time for starting runes
+            rune.maxLifetime = 15.0;
+            
+            this.powerRunes.push(rune);
+        }
     }
 
     restartGame() {
         this.ui.hideGameOver();
         this.init();
+        
+        // Spawn starting power runes near the player
+        this.spawnStartingRunes();
+        
         this.lastTime = performance.now();
         requestAnimationFrame((t) => this.gameLoop(t));
     }
@@ -282,10 +306,6 @@ class Game {
         for (const purple of this.fastPurpleEnemies) {
             purple.update(dt, this.player.x, this.player.y);
         }
-        
-        
-        // Base attack
-        this.updateBaseAttack(dt);
         
         // Update power manager
         this.powerManager.update(dt);
@@ -682,24 +702,41 @@ class Game {
                 this.player.x, this.player.y, this.player.radius,
                 crystal.x, crystal.y, crystal.collectRadius
             )) {
-                const crystalType = crystal.type; // Save type before removing crystal
+                const crystalType = crystal.type;
+                const crystalX = crystal.x;
+                const crystalY = crystal.y;
                 
-                this.player.collectCrystal(crystalType);
-                
-                // Apply supercharge effect - temporarily boost powers of this crystal type
-                this.player.statusEffects.addEffect(
-                    createSuperchargeEffect(crystalType)
-                );
-                
+                // Remove crystal
                 this.crystals.splice(i, 1);
                 
-                // Trigger power selection immediately with this crystal's type
-                this.triggerLevelUp(crystalType);
+                // Create nova explosion of the crystal's type
+                this.createCrystalNova(crystalX, crystalY, crystalType);
+                
+                // Spawn 3 power runes flying out
+                this.spawnPowerRunes(crystalX, crystalY, crystalType);
+            }
+        }
+        
+        // Update power runes
+        for (let i = this.powerRunes.length - 1; i >= 0; i--) {
+            const rune = this.powerRunes[i];
+            if (!rune.update(dt)) {
+                // Rune expired
+                this.powerRunes.splice(i, 1);
+                continue;
+            }
+            
+            // Check if player collects the rune
+            if (rune.checkCollection(this.player.x, this.player.y, this.player.radius)) {
+                const powerDef = POWERS[rune.powerId];
+                const result = this.player.collectPowerRune(rune.powerId, powerDef?.passive || false);
+                
+                // Remove the collected rune
+                this.powerRunes.splice(i, 1);
             }
         }
         
         // Update UI
-        this.ui.updateCrystals(this.player.crystals);
         this.ui.updatePowers(this.player.powers);
         this.ui.updateXpBar(this.player.xp, this.player.getXpForNextLevel(), this.player.playerLevel);
         this.ui.updatePassiveUpgrades(this.player.passiveUpgrades);
@@ -783,51 +820,6 @@ class Game {
         }
     }
 
-    updateBaseAttack(dt) {
-        this.baseAttackTimer += dt;
-        
-        // Target all enemy types
-        const allTargets = [
-            ...this.builders,
-            ...this.spawnBlocks,
-            ...this.fieryEnemies,
-            ...this.gravitationalEnemies,
-            ...this.fastPurpleEnemies
-        ];
-        
-        if (this.baseAttackTimer >= this.baseAttackCooldown && allTargets.length > 0) {
-            this.baseAttackTimer = 0;
-            
-            // Find nearest enemy
-            let nearest = allTargets[0];
-            let nearestDist = distance(this.player.x, this.player.y, nearest.x, nearest.y);
-            
-            for (let i = 1; i < allTargets.length; i++) {
-                const dist = distance(this.player.x, this.player.y, allTargets[i].x, allTargets[i].y);
-                if (dist < nearestDist) {
-                    nearest = allTargets[i];
-                    nearestDist = dist;
-                }
-            }
-            
-            // Fire at nearest enemy
-            const angle = Math.atan2(nearest.y - this.player.y, nearest.x - this.player.x);
-            this.projectiles.push(new Projectile(
-                this.player.x,
-                this.player.y,
-                angle,
-                450,
-                10,
-                {
-                    radius: 6,
-                    color: '#ffffff',
-                    trailLength: 4,
-                    lifetime: 3.5
-                }
-            ));
-        }
-    }
-    
     updatePowerManagerEnemies() {
         // Combine all enemy arrays for power manager
         const allEnemies = [
@@ -856,18 +848,56 @@ class Game {
         ));
     }
 
-    triggerLevelUp(crystalType) {
-        this.paused = true;
+    /**
+     * Create a damaging nova explosion when a crystal is touched
+     */
+    createCrystalNova(x, y, crystalType) {
+        const crystalConfig = CRYSTAL_TYPES[crystalType];
+        const color = crystalConfig?.color || '#ffffff';
         
-        const options = PowerManager.generatePowerOptions(
-            crystalType,
-            this.player.powers
-        );
+        // Visual ring effect
+        this.ringEffects.push(new RingEffect(
+            x,
+            y,
+            180,  // Max radius
+            30,   // Damage
+            0.6,  // Duration
+            {
+                color: color,
+                knockback: 80
+            }
+        ));
+    }
+
+    /**
+     * Spawn 3 power runes when a crystal is collected
+     * 1 guaranteed from crystal's element, 2 random from all powers
+     */
+    spawnPowerRunes(x, y, crystalType) {
+        const powersByCategory = {
+            heat: ['fireballBarrage', 'magmaPool', 'infernoRing'],
+            cold: ['iceShards', 'frostNova', 'frozenArmor'],
+            force: ['forceBolt', 'gravityWell', 'orbitalShields']
+        };
         
-        this.ui.showLevelUp(options, this.player.powers, (selectedPower) => {
-            this.player.addPower({ id: selectedPower.id, passive: selectedPower.passive });
-            this.paused = false;
-        });
+        const allPowerIds = Object.keys(POWERS);
+        const categoryPowers = powersByCategory[crystalType] || allPowerIds;
+        
+        const runeIds = [];
+        
+        // First rune: guaranteed from the crystal's element
+        runeIds.push(randomChoice(categoryPowers));
+        
+        // Second and third runes: random from all powers
+        runeIds.push(randomChoice(allPowerIds));
+        runeIds.push(randomChoice(allPowerIds));
+        
+        // Spawn runes flying outward in different directions
+        for (let i = 0; i < runeIds.length; i++) {
+            const runeAngle = (i / 3) * Math.PI * 2 + randomRange(-0.3, 0.3);
+            const rune = new PowerRune(x, y, runeIds[i], runeAngle);
+            this.powerRunes.push(rune);
+        }
     }
 
     gameOver() {
@@ -928,6 +958,13 @@ class Game {
         for (const crystal of this.crystals) {
             if (this.camera.isVisible(crystal.x, crystal.y, 50)) {
                 crystal.render(ctx, this.camera);
+            }
+        }
+        
+        // Draw power runes
+        for (const rune of this.powerRunes) {
+            if (this.camera.isVisible(rune.x, rune.y, 50)) {
+                rune.render(ctx, this.camera);
             }
         }
         
