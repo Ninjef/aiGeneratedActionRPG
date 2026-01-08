@@ -358,7 +358,7 @@ export class Builder {
         return this.health <= 0;
     }
 
-    update(dt, playerX, playerY, crystals) {
+    update(dt, playerX, playerY, crystals, spawnBlocks = []) {
         // Update slow
         if (this.slowTime > 0) {
             this.slowTime -= dt;
@@ -393,31 +393,66 @@ export class Builder {
         } else {
             // Check for nearby crystals
             let nearestCrystal = null;
-            let nearestDist = Infinity;
+            let nearestCrystalDist = Infinity;
             
             for (const crystal of crystals) {
                 const dist = distance(this.x, this.y, crystal.x, crystal.y);
-                if (dist < crystal.aggroRadius && dist < nearestDist) {
+                if (dist < crystal.aggroRadius && dist < nearestCrystalDist) {
                     nearestCrystal = crystal;
-                    nearestDist = dist;
+                    nearestCrystalDist = dist;
                 }
             }
             
-            if (nearestCrystal) {
-                // Move toward crystal
-                this.targetCrystal = nearestCrystal;
-                const dx = nearestCrystal.x - this.x;
-                const dy = nearestCrystal.y - this.y;
+            // Check for nearby spawn blocks (towers)
+            let nearestTower = null;
+            let nearestTowerDist = Infinity;
+            const towerAggroRadius = 350; // Same as crystal aggro radius
+            
+            for (const tower of spawnBlocks) {
+                const dist = distance(this.x, this.y, tower.x, tower.y);
+                if (dist < towerAggroRadius && dist < nearestTowerDist) {
+                    nearestTower = tower;
+                    nearestTowerDist = dist;
+                }
+            }
+            
+            // Prefer whichever is closer: crystal or tower
+            let target = null;
+            let targetType = null;
+            
+            if (nearestCrystal && nearestTower) {
+                if (nearestCrystalDist < nearestTowerDist) {
+                    target = nearestCrystal;
+                    targetType = 'crystal';
+                } else {
+                    target = nearestTower;
+                    targetType = 'tower';
+                }
+            } else if (nearestCrystal) {
+                target = nearestCrystal;
+                targetType = 'crystal';
+            } else if (nearestTower) {
+                target = nearestTower;
+                targetType = 'tower';
+            }
+            
+            if (target) {
+                // Move toward target (crystal or tower)
+                this.targetCrystal = targetType === 'crystal' ? target : null;
+                this.targetTower = targetType === 'tower' ? target : null;
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
                 const dir = normalize(dx, dy);
                 
                 this.x += dir.x * this.speed * dt;
                 this.y += dir.y * this.speed * dt;
                 
-                this.targetX = nearestCrystal.x;
-                this.targetY = nearestCrystal.y;
+                this.targetX = target.x;
+                this.targetY = target.y;
             } else {
                 // Wander randomly
                 this.targetCrystal = null;
+                this.targetTower = null;
                 this.wanderTimer += dt;
                 if (this.wanderTimer >= this.wanderChangeInterval) {
                     this.wanderTimer = 0;
@@ -718,10 +753,18 @@ export class SpawnBlock {
         this.x = x;
         this.y = y;
         this.crystalType = crystalType;  // heat, cold, force
-        this.health = 250;
-        this.maxHealth = 250;
-        this.radius = 30;
-        this.xp = 50;
+        
+        // Level and XP system
+        this.level = 1;
+        this.towerXp = 0;
+        this.xpToNextLevel = 20;  // XP needed to level up (scales with level)
+        
+        // Base stats (scale with level)
+        this.baseHealth = 250;
+        this.baseRadius = 30;
+        this.recalculateStats();
+        
+        this.xp = 50;  // XP awarded to player when destroyed
         
         // Aggro radius - fighters are attracted from this distance
         this.aggroRadius = 1000;
@@ -729,6 +772,7 @@ export class SpawnBlock {
         // Visual
         this.pulsePhase = 0;
         this.hurtTime = 0;
+        this.levelUpFlash = 0;  // Visual flash when leveling up
         
         // Color based on crystal type
         const colors = {
@@ -738,6 +782,52 @@ export class SpawnBlock {
         };
         this.color = colors[crystalType];
         this.glowColor = this.color + '80';
+    }
+    
+    /**
+     * Recalculate stats based on current level
+     */
+    recalculateStats() {
+        // HP scales with level: +50% per level (no cap)
+        this.maxHealth = Math.floor(this.baseHealth * (1 + (this.level - 1) * 0.5));
+        this.health = this.maxHealth;
+        
+        // Radius scales slightly: +10% per level, capped at 2x base
+        const radiusMultiplier = Math.min(2.0, 1 + (this.level - 1) * 0.1);
+        this.radius = this.baseRadius * radiusMultiplier;
+        
+        // XP awarded to player scales with level
+        this.xp = 50 + (this.level - 1) * 25;
+    }
+    
+    /**
+     * Add XP to the tower (called when a builder enters)
+     * Returns true if the tower leveled up
+     */
+    addTowerXp(amount) {
+        this.towerXp += amount;
+        
+        // Check for level up
+        if (this.towerXp >= this.xpToNextLevel) {
+            this.towerXp -= this.xpToNextLevel;
+            this.level++;
+            
+            // XP required for next level increases
+            this.xpToNextLevel = Math.floor(20 * Math.pow(1.5, this.level - 1));
+            
+            // Recalculate stats and heal to new max
+            const oldMaxHealth = this.maxHealth;
+            this.recalculateStats();
+            
+            // Heal by the difference (don't over-heal)
+            this.health = Math.min(this.health + (this.maxHealth - oldMaxHealth), this.maxHealth);
+            
+            // Visual feedback
+            this.levelUpFlash = 0.5;
+            
+            return true;
+        }
+        return false;
     }
     
     applySlow(amount, duration) {
@@ -761,8 +851,39 @@ export class SpawnBlock {
             this.hurtTime -= dt;
         }
         
+        if (this.levelUpFlash > 0) {
+            this.levelUpFlash -= dt;
+        }
+        
         // No periodic spawning - spawning is triggered externally when fighters enter
         return null;
+    }
+    
+    /**
+     * Calculate stat multipliers for spawned enemies based on tower level
+     */
+    getEnemyScaling() {
+        const level = this.level;
+        
+        // Speed: +15% per level, capped at 2x base speed
+        const speedMultiplier = Math.min(2.0, 1 + (level - 1) * 0.15);
+        
+        // HP: +30% per level, no cap
+        const healthMultiplier = 1 + (level - 1) * 0.3;
+        
+        // Damage: +20% per level, no cap
+        const damageMultiplier = 1 + (level - 1) * 0.2;
+        
+        // Radius: +8% per level, capped at 1.5x base radius
+        const radiusMultiplier = Math.min(1.5, 1 + (level - 1) * 0.08);
+        
+        return {
+            speed: speedMultiplier,
+            health: healthMultiplier,
+            damage: damageMultiplier,
+            radius: radiusMultiplier,
+            level: level
+        };
     }
     
     /**
@@ -787,7 +908,8 @@ export class SpawnBlock {
             count: spawnCounts[this.crystalType],
             enemyType: enemyTypes[this.crystalType],
             x: this.x,
-            y: this.y
+            y: this.y,
+            scaling: this.getEnemyScaling()
         };
     }
     
@@ -799,8 +921,28 @@ export class SpawnBlock {
         
         ctx.save();
         
-        // Outer glow
-        const glowSize = r * 1.8 * pulse;
+        // Level-up flash effect (expands outward)
+        if (this.levelUpFlash > 0) {
+            const flashProgress = 1 - (this.levelUpFlash / 0.5);
+            const flashRadius = r * (1.5 + flashProgress * 2);
+            const flashAlpha = (1 - flashProgress) * 0.6;
+            
+            const flashGradient = ctx.createRadialGradient(
+                screen.x, screen.y, r,
+                screen.x, screen.y, flashRadius
+            );
+            flashGradient.addColorStop(0, `rgba(255, 255, 255, ${flashAlpha})`);
+            flashGradient.addColorStop(0.5, `rgba(255, 215, 0, ${flashAlpha * 0.5})`);
+            flashGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = flashGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, flashRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Outer glow (stronger for higher levels)
+        const glowIntensity = Math.min(1.5, 1 + (this.level - 1) * 0.1);
+        const glowSize = r * 1.8 * pulse * glowIntensity;
         const glowGradient = ctx.createRadialGradient(
             screen.x, screen.y, r * 0.5,
             screen.x, screen.y, glowSize
@@ -814,13 +956,14 @@ export class SpawnBlock {
         ctx.fill();
         
         // Main square body
-        const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+        const baseColor = this.hurtTime > 0 ? '#ffffff' : (this.levelUpFlash > 0 ? '#ffffaa' : this.color);
         ctx.fillStyle = baseColor;
         ctx.fillRect(screen.x - r, screen.y - r, r * 2, r * 2);
         
-        // Border
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3 * scale;
+        // Border (thicker for higher levels)
+        const borderWidth = Math.min(6, 3 + (this.level - 1) * 0.5);
+        ctx.strokeStyle = this.level >= 3 ? '#ffd700' : '#ffffff';  // Gold border at level 3+
+        ctx.lineWidth = borderWidth * scale;
         ctx.strokeRect(screen.x - r, screen.y - r, r * 2, r * 2);
         
         // Inner pattern (diagonal lines)
@@ -843,6 +986,41 @@ export class SpawnBlock {
         
         // Health bar (always visible)
         this.renderHealthBar(ctx, screen, scale);
+        
+        // Level display above the tower
+        this.renderLevel(ctx, screen, scale);
+    }
+    
+    renderLevel(ctx, screen, scale) {
+        const levelText = `Lv.${this.level}`;
+        const fontSize = Math.max(12, 16 * scale);
+        const levelY = screen.y - this.radius * scale - 22 * scale;
+        
+        ctx.save();
+        ctx.font = `bold ${fontSize}px "Segoe UI", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Background pill
+        const textWidth = ctx.measureText(levelText).width;
+        const padding = 4 * scale;
+        const pillHeight = fontSize + padding * 2;
+        const pillWidth = textWidth + padding * 3;
+        
+        // Darker background for better visibility
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.beginPath();
+        ctx.roundRect(screen.x - pillWidth / 2, levelY - pillHeight / 2, pillWidth, pillHeight, pillHeight / 2);
+        ctx.fill();
+        
+        // Gold text for high level, white otherwise
+        ctx.fillStyle = this.level >= 3 ? '#ffd700' : '#ffffff';
+        if (this.level >= 5) {
+            ctx.fillStyle = '#ff6b35';  // Orange/red for very high level
+        }
+        ctx.fillText(levelText, screen.x, levelY);
+        
+        ctx.restore();
     }
     
     renderHealthBar(ctx, screen, scale) {
@@ -868,20 +1046,28 @@ export class SpawnBlock {
 
 // FieryEnemy class - fast, erratic enemies that leave fire trails
 export class FieryEnemy {
-    constructor(x, y) {
+    constructor(x, y, scaling = null) {
         const config = ENEMY_TYPES.fiery;
         
         this.x = x;
         this.y = y;
         this.type = 'fiery';
-        this.radius = config.radius;
-        this.baseSpeed = config.speed;
-        this.speed = config.speed;
-        this.maxHealth = config.health;
-        this.health = config.health;
-        this.damage = config.damage;
+        this.towerLevel = scaling?.level || 1;
+        
+        // Apply scaling if provided
+        const speedMult = scaling?.speed || 1;
+        const healthMult = scaling?.health || 1;
+        const damageMult = scaling?.damage || 1;
+        const radiusMult = scaling?.radius || 1;
+        
+        this.radius = config.radius * radiusMult;
+        this.baseSpeed = config.speed * speedMult;
+        this.speed = this.baseSpeed;
+        this.maxHealth = Math.floor(config.health * healthMult);
+        this.health = this.maxHealth;
+        this.damage = Math.floor(config.damage * damageMult);
         this.color = config.color;
-        this.xp = config.xp;
+        this.xp = Math.floor(config.xp * (1 + (this.towerLevel - 1) * 0.5));  // XP scales with tower level
         
         // Trail settings
         this.trailInterval = config.trailInterval;
@@ -1026,20 +1212,28 @@ export class FieryEnemy {
 
 // GravitationalEnemy class - blue enemies that pull each other together
 export class GravitationalEnemy {
-    constructor(x, y) {
+    constructor(x, y, scaling = null) {
         const config = ENEMY_TYPES.gravitational;
         
         this.x = x;
         this.y = y;
         this.type = 'gravitational';
-        this.radius = config.radius;
-        this.baseSpeed = config.speed;
-        this.speed = config.speed;
-        this.maxHealth = config.health;
-        this.health = config.health;
-        this.damage = config.damage;
+        this.towerLevel = scaling?.level || 1;
+        
+        // Apply scaling if provided
+        const speedMult = scaling?.speed || 1;
+        const healthMult = scaling?.health || 1;
+        const damageMult = scaling?.damage || 1;
+        const radiusMult = scaling?.radius || 1;
+        
+        this.radius = config.radius * radiusMult;
+        this.baseSpeed = config.speed * speedMult;
+        this.speed = this.baseSpeed;
+        this.maxHealth = Math.floor(config.health * healthMult);
+        this.health = this.maxHealth;
+        this.damage = Math.floor(config.damage * damageMult);
         this.color = config.color;
-        this.xp = config.xp;
+        this.xp = Math.floor(config.xp * (1 + (this.towerLevel - 1) * 0.5));  // XP scales with tower level
         this.gravityRange = config.gravityRange;
         this.gravityStrength = config.gravityStrength;
         
@@ -1181,20 +1375,28 @@ export class GravitationalEnemy {
 
 // FastPurpleEnemy class - fast purple enemies that chase the player
 export class FastPurpleEnemy {
-    constructor(x, y) {
+    constructor(x, y, scaling = null) {
         const config = ENEMY_TYPES.fastPurple;
         
         this.x = x;
         this.y = y;
         this.type = 'fastPurple';
-        this.radius = config.radius;
-        this.baseSpeed = config.speed;
-        this.speed = config.speed;
-        this.maxHealth = config.health;
-        this.health = config.health;
-        this.damage = config.damage;
+        this.towerLevel = scaling?.level || 1;
+        
+        // Apply scaling if provided
+        const speedMult = scaling?.speed || 1;
+        const healthMult = scaling?.health || 1;
+        const damageMult = scaling?.damage || 1;
+        const radiusMult = scaling?.radius || 1;
+        
+        this.radius = config.radius * radiusMult;
+        this.baseSpeed = config.speed * speedMult;
+        this.speed = this.baseSpeed;
+        this.maxHealth = Math.floor(config.health * healthMult);
+        this.health = this.maxHealth;
+        this.damage = Math.floor(config.damage * damageMult);
         this.color = config.color;
-        this.xp = config.xp;
+        this.xp = Math.floor(config.xp * (1 + (this.towerLevel - 1) * 0.5));  // XP scales with tower level
         
         // Visual
         this.hurtTime = 0;

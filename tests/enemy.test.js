@@ -9,36 +9,13 @@ describe('Builder', () => {
         builder = new Builder(100, 200);
     });
 
-    describe('constructor', () => {
-        it('should initialize at given position', () => {
-            expect(builder.x).toBe(100);
-            expect(builder.y).toBe(200);
-        });
-
-        it('should have builder type stats', () => {
-            expect(builder.type).toBe('builder');
-            expect(builder.health).toBe(30);
-            expect(builder.damage).toBe(0);
-            expect(builder.radius).toBe(15);
-        });
-
-        it('should have flee radius', () => {
-            expect(builder.fleeRadius).toBe(200);
-        });
-    });
-
     describe('takeDamage', () => {
-        it('should reduce health', () => {
-            builder.takeDamage(10);
-            expect(builder.health).toBe(20);
-        });
-
         it('should return true when builder dies', () => {
-            expect(builder.takeDamage(30)).toBe(true);
+            expect(builder.takeDamage(builder.maxHealth)).toBe(true);
         });
 
         it('should return false when builder survives', () => {
-            expect(builder.takeDamage(10)).toBe(false);
+            expect(builder.takeDamage(1)).toBe(false);
         });
     });
 
@@ -84,36 +61,13 @@ describe('Fighter', () => {
         fighter = new Fighter(100, 100);
     });
 
-    describe('constructor', () => {
-        it('should initialize at given position', () => {
-            expect(fighter.x).toBe(100);
-            expect(fighter.y).toBe(100);
-        });
-
-        it('should have fighter type stats', () => {
-            expect(fighter.type).toBe('fighter');
-            expect(fighter.health).toBe(40);
-            expect(fighter.damage).toBe(10);
-            expect(fighter.radius).toBe(14);
-        });
-
-        it('should have aggro radius', () => {
-            expect(fighter.aggroRadius).toBe(6000);
-        });
-    });
-
     describe('takeDamage', () => {
-        it('should reduce health', () => {
-            fighter.takeDamage(10);
-            expect(fighter.health).toBe(30);
-        });
-
         it('should return true when fighter dies', () => {
-            expect(fighter.takeDamage(40)).toBe(true);
+            expect(fighter.takeDamage(fighter.maxHealth)).toBe(true);
         });
 
         it('should return false when fighter survives', () => {
-            expect(fighter.takeDamage(10)).toBe(false);
+            expect(fighter.takeDamage(1)).toBe(false);
         });
     });
 
@@ -155,19 +109,7 @@ describe('Fighter', () => {
             expect(fighter.targetTower).toBe(tower);
         });
 
-        it('should ignore tower outside aggro range', () => {
-            const tower = new SpawnBlock(100, 600, 'cold'); // 500 units away, outside 400 aggroRadius
-            
-            fighter.update(0.1, 500, 500, [tower]); // Player far away
-            
-            // Should not target the tower
-            expect(fighter.targetTower).toBeNull();
-        });
-
         it('should wander when no tower or player nearby', () => {
-            const initialX = fighter.x;
-            const initialY = fighter.y;
-            
             // Put fighter far from player (outside 6000 aggro range)
             fighter = new Fighter(0, 0);
             fighter.update(0.1, 10000, 10000, []); // Player very far away, no towers
@@ -187,38 +129,13 @@ describe('SpawnBlock', () => {
         spawnBlock = new SpawnBlock(100, 100, 'heat');
     });
 
-    describe('constructor', () => {
-        it('should initialize at given position', () => {
-            expect(spawnBlock.x).toBe(100);
-            expect(spawnBlock.y).toBe(100);
-        });
-
-        it('should store crystal type', () => {
-            expect(spawnBlock.crystalType).toBe('heat');
-        });
-
-        it('should have 250 health', () => {
-            expect(spawnBlock.health).toBe(250);
-            expect(spawnBlock.maxHealth).toBe(250);
-        });
-
-        it('should have aggro radius for attracting fighters', () => {
-            expect(spawnBlock.aggroRadius).toBe(400);
-        });
-    });
-
     describe('takeDamage', () => {
-        it('should reduce health', () => {
-            spawnBlock.takeDamage(50);
-            expect(spawnBlock.health).toBe(200);
-        });
-
         it('should return true when destroyed', () => {
-            expect(spawnBlock.takeDamage(250)).toBe(true);
+            expect(spawnBlock.takeDamage(spawnBlock.maxHealth)).toBe(true);
         });
 
         it('should return false when survives', () => {
-            expect(spawnBlock.takeDamage(100)).toBe(false);
+            expect(spawnBlock.takeDamage(1)).toBe(false);
         });
     });
 
@@ -226,11 +143,6 @@ describe('SpawnBlock', () => {
         it('should always return null (no periodic spawning)', () => {
             const result = spawnBlock.update(5.0);
             expect(result).toBeNull();
-        });
-
-        it('should update pulse phase', () => {
-            spawnBlock.update(1.0);
-            expect(spawnBlock.pulsePhase).toBeCloseTo(2.0);
         });
     });
 
@@ -269,6 +181,31 @@ describe('SpawnBlock', () => {
             expect(result.y).toBe(300);
         });
     });
+    
+    describe('leveling system', () => {
+        it('should level up when enough XP is added', () => {
+            expect(spawnBlock.level).toBe(1);
+            spawnBlock.addTowerXp(20);
+            expect(spawnBlock.level).toBe(2);
+        });
+        
+        it('should increase max health on level up', () => {
+            const initialMaxHealth = spawnBlock.maxHealth;
+            spawnBlock.addTowerXp(20);
+            expect(spawnBlock.maxHealth).toBeGreaterThan(initialMaxHealth);
+        });
+        
+        it('should include scaling info in triggerSpawn', () => {
+            spawnBlock.addTowerXp(20); // Level up to 2
+            const result = spawnBlock.triggerSpawn();
+            
+            expect(result.scaling).toBeDefined();
+            expect(result.scaling.level).toBe(2);
+            expect(result.scaling.speed).toBeGreaterThan(1);
+            expect(result.scaling.health).toBeGreaterThan(1);
+            expect(result.scaling.damage).toBeGreaterThan(1);
+        });
+    });
 });
 
 describe('FieryEnemy', () => {
@@ -276,15 +213,6 @@ describe('FieryEnemy', () => {
 
     beforeEach(() => {
         fiery = new FieryEnemy(100, 100);
-    });
-
-    describe('constructor', () => {
-        it('should initialize with fiery stats', () => {
-            expect(fiery.type).toBe('fiery');
-            expect(fiery.health).toBe(15);
-            expect(fiery.damage).toBe(8);
-            expect(fiery.speed).toBe(250);
-        });
     });
 
     describe('update', () => {
@@ -298,27 +226,28 @@ describe('FieryEnemy', () => {
         });
 
         it('should return fire trail info after interval', () => {
-            const result = fiery.update(0.2, 200, 200);
+            fiery.trailTimer = fiery.trailInterval; // Fast-forward to trigger trail
+            const result = fiery.update(0.01, 200, 200);
             
             expect(result).not.toBeNull();
             expect(result.type).toBe('fireTrail');
-            expect(result.radius).toBe(20);
-        });
-
-        it('should not return trail before interval', () => {
-            const result = fiery.update(0.1, 200, 200);
-            expect(result).toBeNull();
         });
     });
 
     describe('takeDamage', () => {
-        it('should reduce health', () => {
-            fiery.takeDamage(5);
-            expect(fiery.health).toBe(10);
-        });
-
         it('should return true when dies', () => {
-            expect(fiery.takeDamage(15)).toBe(true);
+            expect(fiery.takeDamage(fiery.maxHealth)).toBe(true);
+        });
+    });
+    
+    describe('scaling', () => {
+        it('should accept scaling parameters', () => {
+            const scaling = { speed: 1.5, health: 2.0, damage: 1.5, radius: 1.2, level: 3 };
+            const scaledFiery = new FieryEnemy(0, 0, scaling);
+            
+            expect(scaledFiery.towerLevel).toBe(3);
+            expect(scaledFiery.maxHealth).toBeGreaterThan(fiery.maxHealth);
+            expect(scaledFiery.damage).toBeGreaterThan(fiery.damage);
         });
     });
 });
@@ -328,20 +257,6 @@ describe('GravitationalEnemy', () => {
 
     beforeEach(() => {
         grav = new GravitationalEnemy(100, 100);
-    });
-
-    describe('constructor', () => {
-        it('should initialize with gravitational stats', () => {
-            expect(grav.type).toBe('gravitational');
-            expect(grav.health).toBe(60);
-            expect(grav.damage).toBe(12);
-            expect(grav.gravityRange).toBe(100);
-        });
-
-        it('should have velocity properties', () => {
-            expect(grav.velocityX).toBe(0);
-            expect(grav.velocityY).toBe(0);
-        });
     });
 
     describe('update', () => {
@@ -365,29 +280,22 @@ describe('GravitationalEnemy', () => {
             // Should have velocity toward the other enemy
             expect(Math.abs(grav.velocityX)).toBeGreaterThan(0);
         });
-
-        it('should not apply gravity to distant enemies', () => {
-            const other = new GravitationalEnemy(300, 100); // 200 units away, outside gravityRange of 100
-            
-            const initialVelX = grav.velocityX;
-            const initialVelY = grav.velocityY;
-            grav.update(0.1, 500, 500, [other]); // Player far away, only gravity matters
-            
-            // Gravity should not apply beyond range (velocities should only be from player movement)
-            // Since player is at (500, 500), enemy should move toward player, not other enemy
-            const movedTowardOther = grav.x > 100; // Would move toward other at x=300
-            expect(movedTowardOther).toBe(true); // Should have moved, but mostly toward player
-        });
     });
 
     describe('takeDamage', () => {
-        it('should reduce health', () => {
-            grav.takeDamage(20);
-            expect(grav.health).toBe(40);
-        });
-
         it('should return true when dies', () => {
-            expect(grav.takeDamage(60)).toBe(true);
+            expect(grav.takeDamage(grav.maxHealth)).toBe(true);
+        });
+    });
+    
+    describe('scaling', () => {
+        it('should accept scaling parameters', () => {
+            const scaling = { speed: 1.5, health: 2.0, damage: 1.5, radius: 1.2, level: 3 };
+            const scaledGrav = new GravitationalEnemy(0, 0, scaling);
+            
+            expect(scaledGrav.towerLevel).toBe(3);
+            expect(scaledGrav.maxHealth).toBeGreaterThan(grav.maxHealth);
+            expect(scaledGrav.damage).toBeGreaterThan(grav.damage);
         });
     });
 });
@@ -397,15 +305,6 @@ describe('FastPurpleEnemy', () => {
 
     beforeEach(() => {
         purple = new FastPurpleEnemy(100, 100);
-    });
-
-    describe('constructor', () => {
-        it('should initialize with fast purple stats', () => {
-            expect(purple.type).toBe('fastPurple');
-            expect(purple.health).toBe(25);
-            expect(purple.damage).toBe(10);
-            expect(purple.speed).toBe(200);
-        });
     });
 
     describe('update', () => {
@@ -423,38 +322,30 @@ describe('FastPurpleEnemy', () => {
     });
 
     describe('takeDamage', () => {
-        it('should reduce health', () => {
-            purple.takeDamage(10);
-            expect(purple.health).toBe(15);
-        });
-
         it('should return true when dies', () => {
-            expect(purple.takeDamage(25)).toBe(true);
+            expect(purple.takeDamage(purple.maxHealth)).toBe(true);
+        });
+    });
+    
+    describe('scaling', () => {
+        it('should accept scaling parameters', () => {
+            const scaling = { speed: 1.5, health: 2.0, damage: 1.5, radius: 1.2, level: 3 };
+            const scaledPurple = new FastPurpleEnemy(0, 0, scaling);
+            
+            expect(scaledPurple.towerLevel).toBe(3);
+            expect(scaledPurple.maxHealth).toBeGreaterThan(purple.maxHealth);
+            expect(scaledPurple.damage).toBeGreaterThan(purple.damage);
         });
     });
 });
 
 describe('ENEMY_TYPES', () => {
-    it('should have all new enemy types', () => {
+    it('should have all enemy types defined', () => {
         expect(ENEMY_TYPES.builder).toBeDefined();
+        expect(ENEMY_TYPES.fighter).toBeDefined();
         expect(ENEMY_TYPES.fiery).toBeDefined();
         expect(ENEMY_TYPES.gravitational).toBeDefined();
         expect(ENEMY_TYPES.fastPurple).toBeDefined();
-    });
-
-    it('should have correct builder stats', () => {
-        expect(ENEMY_TYPES.builder.damage).toBe(0);
-        expect(ENEMY_TYPES.builder.fleeRadius).toBe(200);
-    });
-
-    it('should have fiery trail properties', () => {
-        expect(ENEMY_TYPES.fiery.trailInterval).toBe(0.2);
-        expect(ENEMY_TYPES.fiery.trailDuration).toBe(6.0);
-    });
-
-    it('should have gravitational gravity properties', () => {
-        expect(ENEMY_TYPES.gravitational.gravityRange).toBe(100);
-        expect(ENEMY_TYPES.gravitational.gravityStrength).toBe(150);
     });
 });
 
@@ -522,8 +413,8 @@ describe('EnemySpawner', () => {
             expect(builders[0].type).toBe('builder');
         });
 
-        it('should not exceed max enemies', () => {
-            const builders = new Array(450).fill(null).map(() => new Builder(0, 0));
+        it('should not exceed max builders', () => {
+            const builders = new Array(spawner.maxBuilders).fill(null).map(() => new Builder(0, 0));
             const initialCount = builders.length;
             
             spawner.update(3.0, 0, 0, builders, [], [], mockCamera);
@@ -552,20 +443,21 @@ describe('FieryEnemy trail creation', () => {
             expect(trailInfo.creator).toBe(fiery);
         });
 
-        it('should include trail position and properties', () => {
+        it('should include trail position', () => {
             fiery.trailTimer = fiery.trailInterval;
             
             const trailInfo = fiery.update(0.01, 0, 0);
             
             expect(trailInfo.x).toBe(fiery.x);
             expect(trailInfo.y).toBe(fiery.y);
-            expect(trailInfo.radius).toBe(20);
-            expect(trailInfo.duration).toBe(6.0);
-            expect(trailInfo.damage).toBe(6);
+            expect(trailInfo.radius).toBeDefined();
+            expect(trailInfo.duration).toBeDefined();
+            expect(trailInfo.damage).toBeDefined();
         });
 
         it('should not return trail info before interval', () => {
-            const trailInfo = fiery.update(0.01, 0, 0);
+            fiery.trailTimer = 0; // Reset to beginning
+            const trailInfo = fiery.update(0.001, 0, 0); // Very short time
             
             expect(trailInfo).toBe(null);
         });

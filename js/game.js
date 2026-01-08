@@ -251,9 +251,9 @@ class Game {
             crystal.update(dt);
         }
         
-        // Update builders
+        // Update builders (pass spawn blocks so they can be attracted to towers)
         for (const builder of this.builders) {
-            builder.update(dt, this.player.x, this.player.y, this.crystals);
+            builder.update(dt, this.player.x, this.player.y, this.crystals, this.spawnBlocks);
         }
         
         // Update fighters (pass spawn blocks so fighters can prioritize them)
@@ -264,6 +264,8 @@ class Game {
         // Check builder-crystal collisions
         for (let i = this.builders.length - 1; i >= 0; i--) {
             const builder = this.builders[i];
+            let builderConsumed = false;
+            
             for (let j = this.crystals.length - 1; j >= 0; j--) {
                 const crystal = this.crystals[j];
                 if (circleCollision(
@@ -276,7 +278,30 @@ class Game {
                     // Remove both crystal and builder
                     this.crystals.splice(j, 1);
                     this.builders.splice(i, 1);
+                    builderConsumed = true;
                     break;
+                }
+            }
+            
+            // If builder wasn't consumed by a crystal, check tower collisions
+            if (!builderConsumed) {
+                for (const block of this.spawnBlocks) {
+                    if (circleCollision(
+                        builder.x, builder.y, builder.radius,
+                        block.x, block.y, block.radius
+                    )) {
+                        // Builder enters tower - give tower XP
+                        const xpAmount = 10;  // XP per builder
+                        const leveledUp = block.addTowerXp(xpAmount);
+                        
+                        if (leveledUp) {
+                            console.log(`Tower leveled up to ${block.level}!`);
+                        }
+                        
+                        // Remove the builder (consumed by tower)
+                        this.builders.splice(i, 1);
+                        break;
+                    }
                 }
             }
         }
@@ -299,7 +324,10 @@ class Game {
                         const maxCanSpawn = this.maxTotalEnemies - currentTotal;
                         const actualSpawnCount = Math.min(spawnInfo.count, maxCanSpawn);
                         
-                        // Spawn enemies around the block
+                        // Get scaling from tower level
+                        const scaling = spawnInfo.scaling;
+                        
+                        // Spawn enemies around the block (with scaling applied)
                         for (let j = 0; j < actualSpawnCount; j++) {
                             const angleOffset = (j / spawnInfo.count) * Math.PI * 2;
                             const spawnDist = block.radius + 20;
@@ -307,11 +335,11 @@ class Game {
                             const spawnY = spawnInfo.y + Math.sin(angleOffset) * spawnDist;
                             
                             if (spawnInfo.enemyType === 'fiery') {
-                                this.fieryEnemies.push(new FieryEnemy(spawnX, spawnY));
+                                this.fieryEnemies.push(new FieryEnemy(spawnX, spawnY, scaling));
                             } else if (spawnInfo.enemyType === 'gravitational') {
-                                this.gravitationalEnemies.push(new GravitationalEnemy(spawnX, spawnY));
+                                this.gravitationalEnemies.push(new GravitationalEnemy(spawnX, spawnY, scaling));
                             } else if (spawnInfo.enemyType === 'fastPurple') {
-                                this.fastPurpleEnemies.push(new FastPurpleEnemy(spawnX, spawnY));
+                                this.fastPurpleEnemies.push(new FastPurpleEnemy(spawnX, spawnY, scaling));
                             }
                         }
                     }
