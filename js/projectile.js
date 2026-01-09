@@ -21,6 +21,7 @@ export class Projectile {
         this.slowAmount = options.slowAmount || 0;
         this.slowDuration = options.slowDuration || 0;
         this.sourceType = options.sourceType || null; // For special projectile types
+        this.explosionRadius = options.explosionRadius || 0; // For fireballs
         
         // Movement
         this.vx = Math.cos(angle) * speed;
@@ -300,91 +301,134 @@ export class RingEffect {
     }
 }
 
-// Orbital shield
+// Single orbital shield - orbits player, launches on enemy collision in movement direction
 export class OrbitalShield {
-    constructor(owner, count, radius, damage) {
+    constructor(owner, orbitRadius, damage, projectilesArray, startAngle) {
         this.owner = owner;
-        this.count = count;
-        this.orbitRadius = radius;
+        this.orbitRadius = orbitRadius;
         this.damage = damage;
-        this.shieldRadius = 10;
-        this.angle = 0;
-        this.rotationSpeed = 2;
-        this.hitCooldowns = new Map();
-        this.hitCooldownTime = 0.5;
+        this.shieldRadius = 14;
+        this.angle = startAngle;
+        this.rotationSpeed = 3.5; // Consistent orbit speed
+        this.projectilesArray = projectilesArray;
+        
+        this.age = 0;
+        this.launched = false;
+        this.expired = false;
+        
+        // Spawn animation
+        this.spawnProgress = 0;
+        this.spawnDuration = 0.15;
     }
 
     update(dt) {
+        if (this.expired) return false;
+        
+        this.age += dt;
         this.angle += this.rotationSpeed * dt;
         
-        // Update cooldowns
-        for (const [enemy, cooldown] of this.hitCooldowns) {
-            this.hitCooldowns.set(enemy, cooldown - dt);
-            if (cooldown - dt <= 0) {
-                this.hitCooldowns.delete(enemy);
-            }
+        // Spawn animation
+        if (this.spawnProgress < 1) {
+            this.spawnProgress = Math.min(1, this.age / this.spawnDuration);
         }
+        
+        return true;
     }
 
-    getShieldPositions() {
-        const positions = [];
-        for (let i = 0; i < this.count; i++) {
-            const shieldAngle = this.angle + (i * Math.PI * 2 / this.count);
-            positions.push({
-                x: this.owner.x + Math.cos(shieldAngle) * this.orbitRadius,
-                y: this.owner.y + Math.sin(shieldAngle) * this.orbitRadius
-            });
-        }
-        return positions;
+    // Called when collision detected - launches the shield as a projectile
+    launch() {
+        if (this.launched) return;
+        
+        const pos = this.getPosition();
+        
+        // Launch in tangent direction (perpendicular to radius, in direction of movement)
+        // For counterclockwise rotation: tangent = angle + π/2
+        const tangentAngle = this.angle + Math.PI / 2;
+        
+        const projectile = new Projectile(
+            pos.x,
+            pos.y,
+            tangentAngle,
+            500,
+            this.damage,
+            {
+                radius: this.shieldRadius,
+                color: '#ba68c8',
+                trailLength: 14,
+                lifetime: 2.5,
+                piercing: true,
+                knockback: 200,
+                sourceType: 'orbitalLaunch'
+            }
+        );
+        this.projectilesArray.push(projectile);
+        
+        this.launched = true;
+        this.expired = true;
+    }
+
+    getPosition() {
+        return {
+            x: this.owner.x + Math.cos(this.angle) * this.orbitRadius,
+            y: this.owner.y + Math.sin(this.angle) * this.orbitRadius
+        };
     }
 
     checkCollision(enemy) {
-        if (this.hitCooldowns.has(enemy)) return false;
+        if (this.launched) return false;
         
-        const positions = this.getShieldPositions();
-        for (const pos of positions) {
-            if (circleCollision(pos.x, pos.y, this.shieldRadius, enemy.x, enemy.y, enemy.radius)) {
-                this.hitCooldowns.set(enemy, this.hitCooldownTime);
-                
-                // Knockback
-                const dir = normalize(enemy.x - this.owner.x, enemy.y - this.owner.y);
-                enemy.applyKnockback(dir.x, dir.y, 100);
-                
-                return true;
-            }
+        const pos = this.getPosition();
+        if (circleCollision(pos.x, pos.y, this.shieldRadius, enemy.x, enemy.y, enemy.radius)) {
+            // Launch on collision!
+            this.launch();
+            
+            // Apply knockback to enemy in launch direction
+            const tangentAngle = this.angle + Math.PI / 2;
+            enemy.applyKnockback(Math.cos(tangentAngle), Math.sin(tangentAngle), 120);
+            
+            return true;
         }
         return false;
     }
 
     render(ctx, camera) {
-        const positions = this.getShieldPositions();
-        const scale = camera.zoom;
-        const r = this.shieldRadius * scale;
+        if (this.expired) return;
         
-        for (const pos of positions) {
-            const screen = camera.worldToScreen(pos.x, pos.y);
-            
-            // Shield glow
-            const gradient = ctx.createRadialGradient(
-                screen.x, screen.y, 0,
-                screen.x, screen.y, r * 1.5
-            );
-            gradient.addColorStop(0, 'rgba(186, 104, 200, 0.8)');
-            gradient.addColorStop(1, 'rgba(186, 104, 200, 0)');
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(screen.x, screen.y, r * 1.5, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Shield body
-            ctx.fillStyle = '#ba68c8';
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2 * scale;
-            ctx.beginPath();
-            ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
+        const pos = this.getPosition();
+        const screen = camera.worldToScreen(pos.x, pos.y);
+        const scale = camera.zoom;
+        
+        // Spawn scale animation
+        const spawnScale = this.spawnProgress < 1 
+            ? 0.3 + 0.7 * Math.pow(this.spawnProgress, 0.5) 
+            : 1;
+        
+        const r = this.shieldRadius * scale * spawnScale;
+        
+        // Pulsing glow
+        const pulseIntensity = 0.7 + 0.3 * Math.sin(this.age * 8);
+        
+        // Shield glow
+        const gradient = ctx.createRadialGradient(
+            screen.x, screen.y, 0,
+            screen.x, screen.y, r * 1.6
+        );
+        gradient.addColorStop(0, `rgba(186, 104, 200, ${0.8 * pulseIntensity})`);
+        gradient.addColorStop(0.6, 'rgba(220, 150, 255, 0.3)');
+        gradient.addColorStop(1, 'rgba(186, 104, 200, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, r * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Shield body
+        ctx.fillStyle = '#ba68c8';
+        ctx.strokeStyle = '#ddaaff';
+        ctx.lineWidth = 2 * scale;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
     }
 }
 

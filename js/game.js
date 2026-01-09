@@ -445,12 +445,14 @@ class Game {
                 
                 if (proj.checkCollision(enemy)) {
                     const killed = enemy.takeDamage(proj.damage);
+                    
+                    // Create fireball explosion on ANY hit (not just kills)
+                    if (proj.sourceType === 'fireballPower') {
+                        this.createFireballExplosion(enemy.x, enemy.y, proj.explosionRadius);
+                    }
+                    
                     if (killed) {
                         this.awardXp(enemy.xp);
-                        // Create fireball explosion if killed by fireball
-                        if (proj.sourceType === 'fireballPower') {
-                            this.createFireballExplosion(enemy.x, enemy.y);
-                        }
                         // Handle spawn block crystal drop
                         if (enemy._isSpawnBlock) {
                             this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
@@ -831,18 +833,31 @@ class Game {
         this.powerManager.setEnemies(allEnemies, []);
     }
 
-    createFireballExplosion(x, y) {
-        // Create explosion area effect when fireball kills an enemy
+    createFireballExplosion(x, y, radius = 120) {
+        // Create explosion area effect when fireball hits an enemy
         this.areaEffects.push(new AreaEffect(
             x,
             y,
-            90,  // Explosion radius
-            35,  // Explosion damage
-            0.5, // Brief duration for instant damage
+            radius,  // Explosion radius (scales with level)
+            45,      // Explosion damage
+            0.5,     // Brief duration for instant damage
             {
                 color: '#ff6b35',
                 damageInterval: 0,  // Damage immediately
                 type: 'fireballExplosion'
+            }
+        ));
+        
+        // Add visual ring effect for impact feedback
+        this.ringEffects.push(new RingEffect(
+            x,
+            y,
+            radius * 0.8,
+            0,    // No additional damage from ring
+            0.3,  // Quick visual flash
+            {
+                color: '#ffaa00',
+                knockback: 30
             }
         ));
     }

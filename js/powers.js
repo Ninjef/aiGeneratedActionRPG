@@ -11,13 +11,14 @@ export const POWERS = {
     fireballBarrage: {
         id: 'fireballBarrage',
         name: 'Fireball',
-        description: 'Fires a fireball that explodes on kill, damaging nearby enemies',
+        description: 'Hurls a massive fireball at enemies that explodes on impact',
         category: 'heat',
-        baseCooldown: 1.5,
+        baseCooldown: 2.5,
         passive: false,
         levelScale: {
-            cooldown: 0.9,    // 10% faster per level
-            damage: 1.2,      // 20% more damage per level
+            cooldown: 0.88,    // 12% faster per level
+            damage: 1.25,      // 25% more damage per level
+            explosionRadius: 1.15 // 15% bigger explosion per level
         }
     },
     magmaPool: {
@@ -119,14 +120,16 @@ export const POWERS = {
     orbitalShields: {
         id: 'orbitalShields',
         name: 'Orbital Shields',
-        description: 'Summon orbiting shields that block and damage enemies',
+        description: 'Summon orbiting shields that launch on enemy collision',
         category: 'force',
-        baseCooldown: 0,
-        passive: true,
+        baseCooldown: 0.8,  // Spawns a new shield every 0.8s
+        passive: false,
         levelScale: {
-            damage: 1.2,
-            count: 1
-        }
+            cooldown: 0.92,
+            damage: 1.25,
+            maxShields: 1  // +1 max shield per level (3 at level 1, 4 at level 2, etc.)
+        },
+        baseMaxShields: 8  // Starting max shields at level 1
     }
 };
 
@@ -137,7 +140,8 @@ export class PowerManager {
         this.areaEffects = areaEffects;
         this.ringEffects = ringEffects;
         this.cooldowns = {};
-        this.orbitalShield = null;
+        this.orbitalShields = []; // Array of active orbital shield instances
+        this.nextShieldAngle = 0; // Track where to spawn next shield
         this.enemies = []; // Reference to enemies array for targeting
         this.champions = []; // Reference to champions array for targeting
     }
@@ -170,9 +174,11 @@ export class PowerManager {
             this.cooldowns[powerId] -= dt;
         }
 
-        // Update orbital shields
-        if (this.orbitalShield) {
-            this.orbitalShield.update(dt);
+        // Update orbital shields (remove expired ones)
+        for (let i = this.orbitalShields.length - 1; i >= 0; i--) {
+            if (!this.orbitalShields[i].update(dt)) {
+                this.orbitalShields.splice(i, 1);
+            }
         }
 
         // Process active powers
@@ -192,18 +198,6 @@ export class PowerManager {
             case 'frozenArmor':
                 // Use setBaseDamageReduction so it combines with passive upgrades
                 this.player.setBaseDamageReduction(Math.min(0.5, 0.1 * effectiveLevel));
-                break;
-            case 'orbitalShields':
-                // Recalculate if shield count should change (including supercharge bonus)
-                const targetCount = 2 + effectiveLevel;
-                if (!this.orbitalShield || this.orbitalShield.count !== targetCount) {
-                    this.orbitalShield = new OrbitalShield(
-                        this.player,
-                        targetCount,
-                        130,
-                        15 * Math.pow(1.2, effectiveLevel - 1)
-                    );
-                }
                 break;
         }
     }
@@ -255,14 +249,27 @@ export class PowerManager {
             case 'gravityWell':
                 this.castGravityWell(level, def);
                 break;
+            case 'orbitalShields':
+                this.castOrbitalShields(level, def);
+                break;
         }
     }
 
     castFireballBarrage(level, def) {
-        const damage = 25 * Math.pow(def.levelScale.damage, level - 1);
+        const damage = 55 * Math.pow(def.levelScale.damage, level - 1);
         const speedBonus = getProjectileSpeedBonus(this.player.passiveUpgrades, 'heat');
-        const speed = 400 * (1 + speedBonus);
-        const fireAngle = randomRange(0, Math.PI * 2);
+        const speed = 350 * (1 + speedBonus);
+        const explosionRadius = 120 * Math.pow(def.levelScale.explosionRadius || 1, level - 1);
+        
+        // Target nearest enemy (like force bolt)
+        const allTargets = this.getAllTargets();
+        const nearest = findClosest(allTargets, this.player.x, this.player.y);
+        let fireAngle;
+        if (nearest) {
+            fireAngle = angle(this.player.x, this.player.y, nearest.x, nearest.y);
+        } else {
+            fireAngle = randomRange(0, Math.PI * 2);
+        }
         
         const projectile = new Projectile(
             this.player.x,
@@ -271,11 +278,12 @@ export class PowerManager {
             speed,
             damage,
             {
-                radius: 10,
+                radius: 20,
                 color: '#ff6b35',
-                trailLength: 8,
+                trailLength: 12,
                 lifetime: 3.5,
-                sourceType: 'fireballPower'
+                sourceType: 'fireballPower',
+                explosionRadius: explosionRadius
             }
         );
         
@@ -447,21 +455,49 @@ export class PowerManager {
         ));
     }
 
+    castOrbitalShields(level, def) {
+        // Calculate max shields for this level
+        const maxShields = def.baseMaxShields + (level - 1) * (def.levelScale.maxShields || 1);
+        
+        // Don't spawn if at max
+        if (this.orbitalShields.length >= maxShields) {
+            return;
+        }
+        
+        const damage = 22 * Math.pow(def.levelScale.damage, level - 1);
+        
+        // Spawn a single shield at the current spawn angle
+        const orbitalShield = new OrbitalShield(
+            this.player,
+            100, // Orbit radius
+            damage,
+            this.projectiles,
+            this.nextShieldAngle
+        );
+        
+        this.orbitalShields.push(orbitalShield);
+        
+        // Increment spawn angle for next shield (spread them out)
+        this.nextShieldAngle += Math.PI * 0.7; // ~126 degrees apart
+    }
+
     checkOrbitalShieldCollisions(enemies) {
-        if (!this.orbitalShield) return [];
+        if (this.orbitalShields.length === 0) return [];
         
         const hitEnemies = [];
-        for (const enemy of enemies) {
-            if (this.orbitalShield.checkCollision(enemy)) {
-                hitEnemies.push({ enemy, damage: this.orbitalShield.damage });
+        for (const shield of this.orbitalShields) {
+            for (const enemy of enemies) {
+                if (shield.checkCollision(enemy)) {
+                    hitEnemies.push({ enemy, damage: shield.damage });
+                }
             }
         }
         return hitEnemies;
     }
 
     renderOrbitalShields(ctx, camera) {
-        if (this.orbitalShield) {
-            this.orbitalShield.render(ctx, camera);
+        for (const shield of this.orbitalShields) {
+            shield.render(ctx, camera);
         }
     }
 

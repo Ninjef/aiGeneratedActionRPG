@@ -356,7 +356,7 @@ Each power rune has:
 
 | Category | Power | Type | Frequency | Effect |
 |----------|-------|------|-----------|--------|
-| Heat | Fireball Barrage | Active | 0.3s | Random direction fireballs |
+| Heat | Fireball | Active | 2.5s | Targeted fireball with large explosion on any hit |
 | Heat | Magma Pool | Active | 5.0s | Persistent damage zone |
 | Heat | Inferno Ring | Active | 3.0s | Expanding damage ring |
 | Cold | Ice Shards | Active | 0.5s | Auto-targeting piercing projectiles + slow |
@@ -364,13 +364,13 @@ Each power rune has:
 | Cold | Frozen Armor | Passive | - | Damage reduction + slow attackers |
 | Force | Force Bolt | Active | 0.4s | High knockback projectile |
 | Force | Gravity Well | Active | 6.0s | Black hole that pulls enemies |
-| Force | Orbital Shields | Passive | - | Orbiting shields that damage/block |
+| Force | Orbital Shields | Active | 0.5s | Continuously spawns orbiting shields that launch on enemy collision |
 
 #### PowerManager
 
 - Tracks cooldowns for each active power
 - Casts powers automatically when cooldown expires
-- Handles passive power effects (damage reduction, orbital shields)
+- Handles passive power effects (damage reduction)
 - Contains `castX()` methods for each power that create projectiles/effects
 - Uses `getEffectiveLevel(power)` to combine base level + status effect bonuses
 
