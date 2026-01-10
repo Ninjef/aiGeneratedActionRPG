@@ -1,5 +1,82 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { PowerManager, POWERS } from '../js/powers.js';
+import { PowerManager, POWERS, getPowerIcon } from '../js/powers.js';
+
+describe('POWERS definitions', () => {
+    describe('data-driven structure', () => {
+        it('should have all required properties for each power', () => {
+            for (const powerId in POWERS) {
+                const power = POWERS[powerId];
+                expect(power.id).toBe(powerId);
+                expect(power.name).toBeDefined();
+                expect(power.description).toBeDefined();
+                expect(power.category).toMatch(/^(heat|cold|force)$/);
+                expect(typeof power.baseCooldown).toBe('number');
+                expect(typeof power.passive).toBe('boolean');
+                expect(power.levelScale).toBeDefined();
+            }
+        });
+
+        it('should have icon definitions for all powers', () => {
+            for (const powerId in POWERS) {
+                const power = POWERS[powerId];
+                expect(power.icon).toBeDefined();
+                expect(power.icon.color).toBeDefined();
+                expect(power.icon.glowColor).toBeDefined();
+                expect(typeof power.icon.render).toBe('function');
+            }
+        });
+
+        it('should have cast functions for all active powers', () => {
+            for (const powerId in POWERS) {
+                const power = POWERS[powerId];
+                if (!power.passive) {
+                    expect(typeof power.cast).toBe('function');
+                }
+            }
+        });
+
+        it('passive powers should have null cast functions', () => {
+            const passivePowers = Object.values(POWERS).filter(p => p.passive);
+            expect(passivePowers.length).toBeGreaterThan(0);
+            for (const power of passivePowers) {
+                expect(power.cast).toBeNull();
+            }
+        });
+    });
+
+    describe('power categories', () => {
+        it('should have 3 heat powers', () => {
+            const heatPowers = Object.values(POWERS).filter(p => p.category === 'heat');
+            expect(heatPowers).toHaveLength(3);
+        });
+
+        it('should have 4 cold powers', () => {
+            const coldPowers = Object.values(POWERS).filter(p => p.category === 'cold');
+            expect(coldPowers).toHaveLength(4);
+        });
+
+        it('should have 3 force powers', () => {
+            const forcePowers = Object.values(POWERS).filter(p => p.category === 'force');
+            expect(forcePowers).toHaveLength(3);
+        });
+    });
+});
+
+describe('getPowerIcon', () => {
+    it('should return icon for known powers', () => {
+        const icon = getPowerIcon('crucible');
+        expect(icon.color).toBe('#dc143c');
+        expect(icon.glowColor).toBe('rgba(220, 20, 60, 0.6)');
+        expect(typeof icon.render).toBe('function');
+    });
+
+    it('should return fallback icon for unknown powers', () => {
+        const icon = getPowerIcon('nonexistent');
+        expect(icon.color).toBe('#ffffff');
+        expect(icon.glowColor).toBe('rgba(255, 255, 255, 0.5)');
+        expect(typeof icon.render).toBe('function');
+    });
+});
 
 describe('PowerManager', () => {
     describe('generatePowerOptions', () => {
@@ -62,6 +139,91 @@ describe('PowerManager', () => {
             const options = PowerManager.generatePowerOptions('invalid', []);
             
             expect(options).toHaveLength(0);
+        });
+
+        it('should include icon in generated options', () => {
+            const options = PowerManager.generatePowerOptions('heat', []);
+            
+            for (const option of options) {
+                expect(option.icon).toBeDefined();
+                expect(option.icon.color).toBeDefined();
+            }
+        });
+
+        it('should include cast function in generated options', () => {
+            const options = PowerManager.generatePowerOptions('heat', []);
+            
+            for (const option of options) {
+                expect(typeof option.cast).toBe('function');
+            }
+        });
+    });
+
+    describe('castPower', () => {
+        it('should not throw when casting with valid power id', () => {
+            // Create minimal mock player
+            const mockPlayer = {
+                x: 0,
+                y: 0,
+                powers: [],
+                passiveUpgrades: [],
+                statusEffects: { getBonusLevels: () => 0 }
+            };
+            
+            const powerManager = new PowerManager(
+                mockPlayer,
+                [], // projectiles
+                [], // areaEffects
+                [], // ringEffects
+                [], // crucibleEffects
+                []  // cryostasisBeams
+            );
+
+            const power = { id: 'crucible', level: 1, passive: false };
+            
+            // Should not throw
+            expect(() => powerManager.castPower(power)).not.toThrow();
+        });
+
+        it('should add crucible effect when casting crucible', () => {
+            const mockPlayer = {
+                x: 100,
+                y: 100,
+                powers: [],
+                passiveUpgrades: [],
+                statusEffects: { getBonusLevels: () => 0 }
+            };
+            
+            const crucibleEffects = [];
+            const powerManager = new PowerManager(
+                mockPlayer,
+                [],
+                [],
+                [],
+                crucibleEffects,
+                []
+            );
+
+            const power = { id: 'crucible', level: 1, passive: false };
+            powerManager.castPower(power);
+            
+            expect(crucibleEffects).toHaveLength(1);
+        });
+
+        it('should not throw for passive powers (null cast)', () => {
+            const mockPlayer = {
+                x: 0,
+                y: 0,
+                powers: [],
+                passiveUpgrades: [],
+                statusEffects: { getBonusLevels: () => 0 }
+            };
+            
+            const powerManager = new PowerManager(mockPlayer, [], [], [], [], []);
+            const power = { id: 'frozenArmor', level: 1, passive: true };
+            
+            // Should not throw for passive powers
+            expect(() => powerManager.castPower(power)).not.toThrow();
         });
     });
 });
