@@ -40,17 +40,17 @@ describe('PowerManager', () => {
 
         it('should include currentLevel for existing powers', () => {
             const existingPowers = [
-                { id: 'fireballBarrage', level: 3, passive: false }
+                { id: 'crucible', level: 3, passive: false }
             ];
             const options = PowerManager.generatePowerOptions('heat', existingPowers);
             
-            const fireballOption = options.find(o => o.id === 'fireballBarrage');
-            expect(fireballOption.currentLevel).toBe(3);
+            const crucibleOption = options.find(o => o.id === 'crucible');
+            expect(crucibleOption.currentLevel).toBe(3);
         });
 
         it('should return all powers in category even if player has them', () => {
             const existingPowers = [
-                { id: 'fireballBarrage', level: 5, passive: false },
+                { id: 'crucible', level: 5, passive: false },
                 { id: 'magmaPool', level: 3, passive: false },
                 { id: 'infernoRing', level: 2, passive: false }
             ];

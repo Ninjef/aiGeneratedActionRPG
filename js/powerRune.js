@@ -5,6 +5,57 @@ import { distance } from './utils.js';
 // Icon rendering functions for each power
 const POWER_ICONS = {
     // HEAT POWERS - Orange/Red theme
+    crucible: {
+        color: '#dc143c',  // Crimson red
+        glowColor: 'rgba(220, 20, 60, 0.6)',
+        render: (ctx, x, y, size) => {
+            // Crucible - a fiery cauldron/vessel shape with heat waves
+            
+            // Outer vessel (bowl shape)
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.6, y - size * 0.1);
+            ctx.quadraticCurveTo(x - size * 0.7, y + size * 0.6, x, y + size * 0.7);
+            ctx.quadraticCurveTo(x + size * 0.7, y + size * 0.6, x + size * 0.6, y - size * 0.1);
+            ctx.lineTo(x + size * 0.5, y - size * 0.2);
+            ctx.quadraticCurveTo(x + size * 0.55, y + size * 0.45, x, y + size * 0.55);
+            ctx.quadraticCurveTo(x - size * 0.55, y + size * 0.45, x - size * 0.5, y - size * 0.2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            // Inner molten glow
+            const gradient = ctx.createRadialGradient(x, y + size * 0.2, 0, x, y + size * 0.2, size * 0.4);
+            gradient.addColorStop(0, '#ff6600');
+            gradient.addColorStop(0.5, '#ff3300');
+            gradient.addColorStop(1, 'rgba(139, 0, 0, 0.5)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.ellipse(x, y + size * 0.2, size * 0.35, size * 0.25, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Rising heat waves/flames
+            ctx.strokeStyle = '#ff4500';
+            ctx.lineWidth = 2;
+            
+            // Left flame
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.2, y);
+            ctx.quadraticCurveTo(x - size * 0.35, y - size * 0.4, x - size * 0.15, y - size * 0.65);
+            ctx.stroke();
+            
+            // Center flame (tallest)
+            ctx.beginPath();
+            ctx.moveTo(x, y - size * 0.1);
+            ctx.quadraticCurveTo(x + size * 0.15, y - size * 0.5, x - size * 0.05, y - size * 0.8);
+            ctx.stroke();
+            
+            // Right flame
+            ctx.beginPath();
+            ctx.moveTo(x + size * 0.2, y);
+            ctx.quadraticCurveTo(x + size * 0.35, y - size * 0.35, x + size * 0.18, y - size * 0.6);
+            ctx.stroke();
+        }
+    },
     fireballBarrage: {
         color: '#ff6b35',
         glowColor: 'rgba(255, 107, 53, 0.5)',

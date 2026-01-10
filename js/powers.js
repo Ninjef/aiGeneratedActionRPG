@@ -1,6 +1,6 @@
 // Power definitions and management system
 
-import { Projectile, AreaEffect, RingEffect, OrbitalShield } from './projectile.js';
+import { Projectile, AreaEffect, RingEffect, OrbitalShield, CrucibleEffect } from './projectile.js';
 import { randomRange, angle, normalize, randomChoice } from './utils.js';
 import { findClosest } from './collision.js';
 import { getCooldownReductionForCategory, getProjectileSpeedBonus } from './passiveUpgrades.js';
@@ -8,17 +8,17 @@ import { getCooldownReductionForCategory, getProjectileSpeedBonus } from './pass
 // Power definitions
 export const POWERS = {
     // HEAT POWERS
-    fireballBarrage: {
-        id: 'fireballBarrage',
-        name: 'Fireball',
-        description: 'Hurls a massive fireball at enemies that explodes on impact',
+    crucible: {
+        id: 'crucible',
+        name: 'Crucible',
+        description: 'Creates a smoldering area that glows with increasing heat',
         category: 'heat',
-        baseCooldown: 2.5,
+        baseCooldown: 8.0,
         passive: false,
         levelScale: {
             cooldown: 0.88,    // 12% faster per level
-            damage: 1.25,      // 25% more damage per level
-            explosionRadius: 1.15 // 15% bigger explosion per level
+            damage: 1.15,      // 25% more damage per level
+            radius: 1.05       // 15% bigger radius per level
         }
     },
     magmaPool: {
@@ -29,9 +29,9 @@ export const POWERS = {
         baseCooldown: 5.0,
         passive: false,
         levelScale: {
-            cooldown: 0.85,
-            damage: 1.3,
-            radius: 1.15
+            cooldown: 0.9,
+            damage: 1.1,
+            radius: 1.25
         }
     },
     infernoRing: {
@@ -95,7 +95,7 @@ export const POWERS = {
         name: 'Force Bolt',
         description: 'Fires a powerful bolt that knocks enemies back',
         category: 'force',
-        baseCooldown: 0.4,
+        baseCooldown: 1.5,
         passive: false,
         levelScale: {
             cooldown: 0.9,
@@ -125,20 +125,21 @@ export const POWERS = {
         baseCooldown: 0.8,  // Spawns a new shield every 0.8s
         passive: false,
         levelScale: {
-            cooldown: 0.92,
-            damage: 1.25,
+            cooldown: 1.2,
+            damage: 1.1,
             maxShields: 1  // +1 max shield per level (3 at level 1, 4 at level 2, etc.)
         },
-        baseMaxShields: 8  // Starting max shields at level 1
+        baseMaxShields: 4  // Starting max shields at level 1
     }
 };
 
 export class PowerManager {
-    constructor(player, projectiles, areaEffects, ringEffects) {
+    constructor(player, projectiles, areaEffects, ringEffects, crucibleEffects = []) {
         this.player = player;
         this.projectiles = projectiles;
         this.areaEffects = areaEffects;
         this.ringEffects = ringEffects;
+        this.crucibleEffects = crucibleEffects;
         this.cooldowns = {};
         this.orbitalShields = []; // Array of active orbital shield instances
         this.nextShieldAngle = 0; // Track where to spawn next shield
@@ -228,8 +229,8 @@ export class PowerManager {
         const level = this.getEffectiveLevel(power);
 
         switch (power.id) {
-            case 'fireballBarrage':
-                this.castFireballBarrage(level, def);
+            case 'crucible':
+                this.castCrucible(level, def);
                 break;
             case 'magmaPool':
                 this.castMagmaPool(level, def);
@@ -255,39 +256,31 @@ export class PowerManager {
         }
     }
 
-    castFireballBarrage(level, def) {
-        const damage = 55 * Math.pow(def.levelScale.damage, level - 1);
-        const speedBonus = getProjectileSpeedBonus(this.player.passiveUpgrades, 'heat');
-        const speed = 350 * (1 + speedBonus);
-        const explosionRadius = 120 * Math.pow(def.levelScale.explosionRadius || 1, level - 1);
+    castCrucible(level, def) {
+        const radius = 450 * Math.pow(def.levelScale.radius || 1, level - 1);
+        const duration = 4.0; // 4 second effect duration
         
-        // Target nearest enemy (like force bolt)
-        const allTargets = this.getAllTargets();
-        const nearest = findClosest(allTargets, this.player.x, this.player.y);
-        let fireAngle;
-        if (nearest) {
-            fireAngle = angle(this.player.x, this.player.y, nearest.x, nearest.y);
-        } else {
-            fireAngle = randomRange(0, Math.PI * 2);
-        }
+        // Pick a random location within 750 radius of the player
+        const spawnAngle = randomRange(0, Math.PI * 2);
+        const spawnDist = randomRange(0, 750);
+        const spawnX = this.player.x + Math.cos(spawnAngle) * spawnDist;
+        const spawnY = this.player.y + Math.sin(spawnAngle) * spawnDist;
         
-        const projectile = new Projectile(
-            this.player.x,
-            this.player.y,
-            fireAngle,
-            speed,
-            damage,
+        // Create crucible effect at the random position
+        // It stays in place once cast
+        const crucible = new CrucibleEffect(
+            spawnX,
+            spawnY,
+            radius,
+            duration,
             {
-                radius: 20,
-                color: '#ff6b35',
-                trailLength: 12,
-                lifetime: 3.5,
-                sourceType: 'fireballPower',
-                explosionRadius: explosionRadius
+                baseColor: '#8b0000',  // Dark red
+                peakColor: '#ff4500',  // Bright orange-red at peak
+                level: level           // Pass level for immobilize count scaling
             }
         );
         
-        this.projectiles.push(projectile);
+        this.crucibleEffects.push(crucible);
     }
 
     castMagmaPool(level, def) {
@@ -504,7 +497,7 @@ export class PowerManager {
     // Generate power options based on crystal type collected
     static generatePowerOptions(category, existingPowers) {
         const powersByCategory = {
-            heat: ['fireballBarrage', 'magmaPool', 'infernoRing'],
+            heat: ['crucible', 'magmaPool', 'infernoRing'],
             cold: ['iceShards', 'frostNova', 'frozenArmor'],
             force: ['forceBolt', 'gravityWell', 'orbitalShields']
         };

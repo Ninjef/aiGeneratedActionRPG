@@ -335,6 +335,22 @@ export class Builder {
         this.wanderAngle = Math.random() * Math.PI * 2;
         this.wanderTimer = 0;
         this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+        
+        // Status effects from Crucible
+        this.deliriousTime = 0;
+        this.deliriousPhase = 'chase'; // 'chase' or 'wander'
+        this.deliriousPhaseDuration = 0.8; // How long each phase lasts
+        this.deliriousPhaseTimer = 0;
+        this.deliriousWanderAngle = 0;
+        
+        this.immobilizedTime = 0;
+        
+        // Burning panic state (triggered by Crucible burst at 90%)
+        this.burningPanicTime = 0;
+        this.burningPanicAngle = 0;
+        this.burningPanicSpeed = 400; // High speed when panicking
+        this.burningTrailTimer = 0;
+        this.burningTrailInterval = 0.05; // Fire trail frequency
     }
 
     setTarget(x, y) {
@@ -345,6 +361,27 @@ export class Builder {
     applySlow(amount, duration) {
         this.slowAmount = Math.max(this.slowAmount, amount);
         this.slowTime = Math.max(this.slowTime, duration);
+    }
+
+    applyDelirious(duration) {
+        if (this.deliriousTime <= 0) {
+            // Starting fresh, randomize initial phase
+            this.deliriousPhase = Math.random() < 0.5 ? 'chase' : 'wander';
+            this.deliriousPhaseTimer = 0;
+            this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+        }
+        this.deliriousTime = Math.max(this.deliriousTime, duration);
+    }
+
+    applyImmobilize(duration) {
+        this.immobilizedTime = Math.max(this.immobilizedTime, duration);
+    }
+
+    applyBurningPanic(duration) {
+        // Start burning in a random direction at high speed
+        this.burningPanicTime = duration;
+        this.burningPanicAngle = Math.random() * Math.PI * 2;
+        this.immobilizedTime = 0; // Break out of immobilize
     }
 
     applyKnockback(dirX, dirY, force) {
@@ -368,12 +405,105 @@ export class Builder {
             this.speed = this.baseSpeed;
         }
         
-        // Apply knockback
+        // Update status effect timers
+        if (this.deliriousTime > 0) {
+            this.deliriousTime -= dt;
+        }
+        if (this.immobilizedTime > 0) {
+            this.immobilizedTime -= dt;
+        }
+        if (this.burningPanicTime > 0) {
+            this.burningPanicTime -= dt;
+        }
+        
+        // Apply knockback (even when immobilized, knockback still works)
         if (Math.abs(this.knockbackX) > 0.1 || Math.abs(this.knockbackY) > 0.1) {
             this.x += this.knockbackX * dt * 10;
             this.y += this.knockbackY * dt * 10;
             this.knockbackX *= 0.9;
             this.knockbackY *= 0.9;
+        }
+        
+        // Handle burning panic - moves fast in random directions with flame trail
+        if (this.burningPanicTime > 0) {
+            // Randomly change direction occasionally
+            if (Math.random() < 0.05) {
+                this.burningPanicAngle += (Math.random() - 0.5) * Math.PI * 0.5;
+            }
+            
+            // Move at high speed
+            this.x += Math.cos(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            this.y += Math.sin(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            
+            // Update target for visual direction
+            this.targetX = this.x + Math.cos(this.burningPanicAngle) * 100;
+            this.targetY = this.y + Math.sin(this.burningPanicAngle) * 100;
+            
+            // Fire trail
+            this.burningTrailTimer += dt;
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            
+            if (this.burningTrailTimer >= this.burningTrailInterval) {
+                this.burningTrailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: 20,
+                    duration: 1.5,
+                    damage: 8,
+                    creator: this
+                };
+            }
+            return null;
+        }
+        
+        // If immobilized, skip all movement (but still update visuals at the end)
+        if (this.immobilizedTime > 0) {
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            return null;
+        }
+        
+        // Handle delirious movement - alternate between chasing and wandering
+        if (this.deliriousTime > 0) {
+            this.deliriousPhaseTimer += dt;
+            if (this.deliriousPhaseTimer >= this.deliriousPhaseDuration) {
+                this.deliriousPhaseTimer = 0;
+                // Switch phase
+                if (this.deliriousPhase === 'chase') {
+                    this.deliriousPhase = 'wander';
+                    this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+                } else {
+                    this.deliriousPhase = 'chase';
+                }
+            }
+            
+            if (this.deliriousPhase === 'chase') {
+                // Move toward player (inefficiently)
+                const dx = playerX - this.x;
+                const dy = playerY - this.y;
+                const dir = normalize(dx, dy);
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+                this.targetX = playerX;
+                this.targetY = playerY;
+            } else {
+                // Wander in random direction
+                this.x += Math.cos(this.deliriousWanderAngle) * this.speed * dt;
+                this.y += Math.sin(this.deliriousWanderAngle) * this.speed * dt;
+                this.targetX = this.x + Math.cos(this.deliriousWanderAngle) * 100;
+                this.targetY = this.y + Math.sin(this.deliriousWanderAngle) * 100;
+            }
+            
+            // Update hurt visual and skip normal movement logic
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            return null;
         }
         
         const distToPlayer = distance(this.x, this.y, playerX, playerY);
@@ -473,6 +603,8 @@ export class Builder {
         if (this.hurtTime > 0) {
             this.hurtTime -= dt;
         }
+        
+        return null;
     }
 
     render(ctx, camera) {
@@ -481,6 +613,22 @@ export class Builder {
         const r = this.radius * scale;
         
         ctx.save();
+        
+        // Burning panic visual effect - fiery glow
+        if (this.burningPanicTime > 0) {
+            const flameSize = r * 2;
+            const flameGradient = ctx.createRadialGradient(
+                screen.x, screen.y, 0,
+                screen.x, screen.y, flameSize
+            );
+            flameGradient.addColorStop(0, 'rgba(255, 100, 0, 0.8)');
+            flameGradient.addColorStop(0.5, 'rgba(255, 50, 0, 0.4)');
+            flameGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = flameGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, flameSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         // Slow effect visual
         if (this.slowTime > 0) {
@@ -492,7 +640,7 @@ export class Builder {
         
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('builder');
-        if (sprite && !this.hurtTime && !simplifiedRendering) {
+        if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
             const spriteScale = (r * 2) / spriteCache.baseSize;
             ctx.drawImage(
                 sprite,
@@ -502,8 +650,13 @@ export class Builder {
                 spriteCache.baseSize * spriteScale
             );
         } else {
-            // Fallback/simplified rendering (or hurt state)
-            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            // Fallback/simplified rendering (or hurt state or burning)
+            let baseColor = this.color;
+            if (this.hurtTime > 0) {
+                baseColor = '#ffffff';
+            } else if (this.burningPanicTime > 0) {
+                baseColor = '#ff6600'; // Fiery orange when burning
+            }
             ctx.fillStyle = baseColor;
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
@@ -584,11 +737,46 @@ export class Fighter {
         this.wanderAngle = Math.random() * Math.PI * 2;
         this.wanderTimer = 0;
         this.wanderChangeInterval = 2.0 + Math.random() * 2.0;
+        
+        // Status effects from Crucible
+        this.deliriousTime = 0;
+        this.deliriousPhase = 'chase';
+        this.deliriousPhaseDuration = 0.8;
+        this.deliriousPhaseTimer = 0;
+        this.deliriousWanderAngle = 0;
+        
+        this.immobilizedTime = 0;
+        
+        // Burning panic state (triggered by Crucible burst at 90%)
+        this.burningPanicTime = 0;
+        this.burningPanicAngle = 0;
+        this.burningPanicSpeed = 400;
+        this.burningTrailTimer = 0;
+        this.burningTrailInterval = 0.05;
     }
 
     applySlow(amount, duration) {
         this.slowAmount = Math.max(this.slowAmount, amount);
         this.slowTime = Math.max(this.slowTime, duration);
+    }
+
+    applyDelirious(duration) {
+        if (this.deliriousTime <= 0) {
+            this.deliriousPhase = Math.random() < 0.5 ? 'chase' : 'wander';
+            this.deliriousPhaseTimer = 0;
+            this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+        }
+        this.deliriousTime = Math.max(this.deliriousTime, duration);
+    }
+
+    applyImmobilize(duration) {
+        this.immobilizedTime = Math.max(this.immobilizedTime, duration);
+    }
+
+    applyBurningPanic(duration) {
+        this.burningPanicTime = duration;
+        this.burningPanicAngle = Math.random() * Math.PI * 2;
+        this.immobilizedTime = 0;
     }
 
     applyKnockback(dirX, dirY, force) {
@@ -612,12 +800,93 @@ export class Fighter {
             this.speed = this.baseSpeed;
         }
         
-        // Apply knockback
+        // Update status effect timers
+        if (this.deliriousTime > 0) {
+            this.deliriousTime -= dt;
+        }
+        if (this.immobilizedTime > 0) {
+            this.immobilizedTime -= dt;
+        }
+        if (this.burningPanicTime > 0) {
+            this.burningPanicTime -= dt;
+        }
+        
+        // Apply knockback (even when immobilized)
         if (Math.abs(this.knockbackX) > 0.1 || Math.abs(this.knockbackY) > 0.1) {
             this.x += this.knockbackX * dt * 10;
             this.y += this.knockbackY * dt * 10;
             this.knockbackX *= 0.9;
             this.knockbackY *= 0.9;
+        }
+        
+        // Handle burning panic - moves fast in random directions with flame trail
+        if (this.burningPanicTime > 0) {
+            if (Math.random() < 0.05) {
+                this.burningPanicAngle += (Math.random() - 0.5) * Math.PI * 0.5;
+            }
+            
+            this.x += Math.cos(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            this.y += Math.sin(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            this.facingAngle = this.burningPanicAngle;
+            
+            this.burningTrailTimer += dt;
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            
+            if (this.burningTrailTimer >= this.burningTrailInterval) {
+                this.burningTrailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: 20,
+                    duration: 1.5,
+                    damage: 8,
+                    creator: this
+                };
+            }
+            return null;
+        }
+        
+        // If immobilized, skip all movement
+        if (this.immobilizedTime > 0) {
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            return null;
+        }
+        
+        // Handle delirious movement
+        if (this.deliriousTime > 0) {
+            this.deliriousPhaseTimer += dt;
+            if (this.deliriousPhaseTimer >= this.deliriousPhaseDuration) {
+                this.deliriousPhaseTimer = 0;
+                if (this.deliriousPhase === 'chase') {
+                    this.deliriousPhase = 'wander';
+                    this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+                } else {
+                    this.deliriousPhase = 'chase';
+                }
+            }
+            
+            if (this.deliriousPhase === 'chase') {
+                const dx = playerX - this.x;
+                const dy = playerY - this.y;
+                const dir = normalize(dx, dy);
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+                this.facingAngle = angle(this.x, this.y, playerX, playerY);
+            } else {
+                this.x += Math.cos(this.deliriousWanderAngle) * this.speed * dt;
+                this.y += Math.sin(this.deliriousWanderAngle) * this.speed * dt;
+                this.facingAngle = this.deliriousWanderAngle;
+            }
+            
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            return null;
         }
         
         // PRIORITY 1: Check for nearby spawn blocks (towers) - these take priority
@@ -681,6 +950,8 @@ export class Fighter {
         if (this.hurtTime > 0) {
             this.hurtTime -= dt;
         }
+        
+        return null;
     }
 
     render(ctx, camera) {
@@ -689,6 +960,22 @@ export class Fighter {
         const r = this.radius * scale;
         
         ctx.save();
+        
+        // Burning panic visual effect - fiery glow
+        if (this.burningPanicTime > 0) {
+            const flameSize = r * 2;
+            const flameGradient = ctx.createRadialGradient(
+                screen.x, screen.y, 0,
+                screen.x, screen.y, flameSize
+            );
+            flameGradient.addColorStop(0, 'rgba(255, 100, 0, 0.8)');
+            flameGradient.addColorStop(0.5, 'rgba(255, 50, 0, 0.4)');
+            flameGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = flameGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, flameSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         // Slow effect visual
         if (this.slowTime > 0) {
@@ -700,7 +987,7 @@ export class Fighter {
         
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('fighter');
-        if (sprite && !this.hurtTime && !simplifiedRendering) {
+        if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
             const spriteScale = (r * 2) / spriteCache.baseSize;
             ctx.drawImage(
                 sprite,
@@ -710,8 +997,13 @@ export class Fighter {
                 spriteCache.baseSize * spriteScale
             );
         } else {
-            // Fallback/simplified rendering (or hurt state)
-            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            // Fallback/simplified rendering (or hurt state or burning)
+            let baseColor = this.color;
+            if (this.hurtTime > 0) {
+                baseColor = '#ffffff';
+            } else if (this.burningPanicTime > 0) {
+                baseColor = '#ff6600';
+            }
             ctx.fillStyle = baseColor;
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
@@ -1091,11 +1383,44 @@ export class FieryEnemy {
         // Knockback
         this.knockbackX = 0;
         this.knockbackY = 0;
+        
+        // Status effects from Crucible
+        this.deliriousTime = 0;
+        this.deliriousPhase = 'chase';
+        this.deliriousPhaseDuration = 0.8;
+        this.deliriousPhaseTimer = 0;
+        this.deliriousWanderAngle = 0;
+        
+        this.immobilizedTime = 0;
+        
+        // Burning panic state (triggered by Crucible burst at 90%)
+        this.burningPanicTime = 0;
+        this.burningPanicAngle = 0;
+        this.burningPanicSpeed = 500; // Even faster for fiery enemies
     }
     
     applySlow(amount, duration) {
         this.slowAmount = Math.max(this.slowAmount, amount);
         this.slowTime = Math.max(this.slowTime, duration);
+    }
+
+    applyDelirious(duration) {
+        if (this.deliriousTime <= 0) {
+            this.deliriousPhase = Math.random() < 0.5 ? 'chase' : 'wander';
+            this.deliriousPhaseTimer = 0;
+            this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+        }
+        this.deliriousTime = Math.max(this.deliriousTime, duration);
+    }
+
+    applyImmobilize(duration) {
+        this.immobilizedTime = Math.max(this.immobilizedTime, duration);
+    }
+
+    applyBurningPanic(duration) {
+        this.burningPanicTime = duration;
+        this.burningPanicAngle = Math.random() * Math.PI * 2;
+        this.immobilizedTime = 0;
     }
 
     applyKnockback(dirX, dirY, force) {
@@ -1119,12 +1444,119 @@ export class FieryEnemy {
             this.speed = this.baseSpeed;
         }
         
-        // Apply knockback
+        // Update status effect timers
+        if (this.deliriousTime > 0) {
+            this.deliriousTime -= dt;
+        }
+        if (this.immobilizedTime > 0) {
+            this.immobilizedTime -= dt;
+        }
+        if (this.burningPanicTime > 0) {
+            this.burningPanicTime -= dt;
+        }
+        
+        // Apply knockback (even when immobilized)
         if (Math.abs(this.knockbackX) > 0.1 || Math.abs(this.knockbackY) > 0.1) {
             this.x += this.knockbackX * dt * 10;
             this.y += this.knockbackY * dt * 10;
             this.knockbackX *= 0.9;
             this.knockbackY *= 0.9;
+        }
+        
+        // Handle burning panic - move even faster with more trails
+        if (this.burningPanicTime > 0) {
+            if (Math.random() < 0.05) {
+                this.burningPanicAngle += (Math.random() - 0.5) * Math.PI * 0.5;
+            }
+            
+            this.x += Math.cos(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            this.y += Math.sin(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            
+            // Faster trail during panic
+            this.trailTimer += dt;
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            
+            if (this.trailTimer >= this.trailInterval * 0.5) { // Faster trail in panic
+                this.trailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: this.trailRadius * 1.5,
+                    duration: this.trailDuration,
+                    damage: this.trailDamage * 1.5,
+                    creator: this
+                };
+            }
+            return null;
+        }
+        
+        // If immobilized, skip all movement but still track trails
+        if (this.immobilizedTime > 0) {
+            this.trailTimer += dt;
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            // Still return trail even when immobilized (fiery enemies leave fire)
+            if (this.trailTimer >= this.trailInterval) {
+                this.trailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: this.trailRadius,
+                    duration: this.trailDuration,
+                    damage: this.trailDamage,
+                    creator: this
+                };
+            }
+            return null;
+        }
+        
+        // Handle delirious movement
+        if (this.deliriousTime > 0) {
+            this.deliriousPhaseTimer += dt;
+            if (this.deliriousPhaseTimer >= this.deliriousPhaseDuration) {
+                this.deliriousPhaseTimer = 0;
+                if (this.deliriousPhase === 'chase') {
+                    this.deliriousPhase = 'wander';
+                    this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+                } else {
+                    this.deliriousPhase = 'chase';
+                }
+            }
+            
+            if (this.deliriousPhase === 'chase') {
+                const dx = playerX - this.x;
+                const dy = playerY - this.y;
+                const dir = normalize(dx, dy);
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+            } else {
+                this.x += Math.cos(this.deliriousWanderAngle) * this.speed * dt;
+                this.y += Math.sin(this.deliriousWanderAngle) * this.speed * dt;
+            }
+            
+            // Still track trails
+            this.trailTimer += dt;
+            if (this.hurtTime > 0) {
+                this.hurtTime -= dt;
+            }
+            if (this.trailTimer >= this.trailInterval) {
+                this.trailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: this.trailRadius,
+                    duration: this.trailDuration,
+                    damage: this.trailDamage,
+                    creator: this
+                };
+            }
+            return null;
         }
         
         // Erratic zig-zag movement
@@ -1172,6 +1604,23 @@ export class FieryEnemy {
         
         ctx.save();
         
+        // Extra intense glow when in burning panic
+        if (this.burningPanicTime > 0) {
+            const flameSize = r * 4;
+            const flameGradient = ctx.createRadialGradient(
+                screen.x, screen.y, 0,
+                screen.x, screen.y, flameSize
+            );
+            flameGradient.addColorStop(0, 'rgba(255, 255, 100, 0.9)');
+            flameGradient.addColorStop(0.3, 'rgba(255, 100, 0, 0.6)');
+            flameGradient.addColorStop(0.6, 'rgba(255, 50, 0, 0.3)');
+            flameGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = flameGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, flameSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
         // Slow effect visual
         if (this.slowTime > 0) {
             ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
@@ -1182,7 +1631,7 @@ export class FieryEnemy {
         
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('fiery');
-        if (sprite && !this.hurtTime && !simplifiedRendering) {
+        if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
             const spriteScale = (r * 5) / spriteCache.baseSize;
             ctx.drawImage(
                 sprite,
@@ -1193,14 +1642,19 @@ export class FieryEnemy {
             );
         } else {
             // Simplified/fallback rendering
-            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            let baseColor = this.color;
+            if (this.hurtTime > 0) {
+                baseColor = '#ffffff';
+            } else if (this.burningPanicTime > 0) {
+                baseColor = '#ffcc00'; // Brighter when panicking
+            }
             ctx.fillStyle = baseColor;
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
             ctx.fill();
             
-            // Bright core
-            ctx.fillStyle = '#ffff00';
+            // Bright core (extra bright in panic)
+            ctx.fillStyle = this.burningPanicTime > 0 ? '#ffffff' : '#ffff00';
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r * 0.5, 0, Math.PI * 2);
             ctx.fill();
@@ -1252,11 +1706,46 @@ export class GravitationalEnemy {
         // Knockback
         this.knockbackX = 0;
         this.knockbackY = 0;
+        
+        // Status effects from Crucible
+        this.deliriousTime = 0;
+        this.deliriousPhase = 'chase';
+        this.deliriousPhaseDuration = 0.8;
+        this.deliriousPhaseTimer = 0;
+        this.deliriousWanderAngle = 0;
+        
+        this.immobilizedTime = 0;
+        
+        // Burning panic state (triggered by Crucible burst at 90%)
+        this.burningPanicTime = 0;
+        this.burningPanicAngle = 0;
+        this.burningPanicSpeed = 350;
+        this.burningTrailTimer = 0;
+        this.burningTrailInterval = 0.06;
     }
     
     applySlow(amount, duration) {
         this.slowAmount = Math.max(this.slowAmount, amount);
         this.slowTime = Math.max(this.slowTime, duration);
+    }
+
+    applyDelirious(duration) {
+        if (this.deliriousTime <= 0) {
+            this.deliriousPhase = Math.random() < 0.5 ? 'chase' : 'wander';
+            this.deliriousPhaseTimer = 0;
+            this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+        }
+        this.deliriousTime = Math.max(this.deliriousTime, duration);
+    }
+
+    applyImmobilize(duration) {
+        this.immobilizedTime = Math.max(this.immobilizedTime, duration);
+    }
+
+    applyBurningPanic(duration) {
+        this.burningPanicTime = duration;
+        this.burningPanicAngle = Math.random() * Math.PI * 2;
+        this.immobilizedTime = 0;
     }
 
     applyKnockback(dirX, dirY, force) {
@@ -1280,12 +1769,85 @@ export class GravitationalEnemy {
             this.speed = this.baseSpeed;
         }
         
-        // Apply knockback
+        // Update status effect timers
+        if (this.deliriousTime > 0) {
+            this.deliriousTime -= dt;
+        }
+        if (this.immobilizedTime > 0) {
+            this.immobilizedTime -= dt;
+        }
+        if (this.burningPanicTime > 0) {
+            this.burningPanicTime -= dt;
+        }
+        
+        // Apply knockback (even when immobilized)
         if (Math.abs(this.knockbackX) > 0.1 || Math.abs(this.knockbackY) > 0.1) {
             this.x += this.knockbackX * dt * 10;
             this.y += this.knockbackY * dt * 10;
             this.knockbackX *= 0.9;
             this.knockbackY *= 0.9;
+        }
+        
+        // Update visuals regardless of movement
+        this.pulsePhase += dt * 2;
+        if (this.hurtTime > 0) {
+            this.hurtTime -= dt;
+        }
+        
+        // Handle burning panic
+        if (this.burningPanicTime > 0) {
+            if (Math.random() < 0.05) {
+                this.burningPanicAngle += (Math.random() - 0.5) * Math.PI * 0.5;
+            }
+            
+            this.x += Math.cos(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            this.y += Math.sin(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            
+            this.burningTrailTimer += dt;
+            if (this.burningTrailTimer >= this.burningTrailInterval) {
+                this.burningTrailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: 25,
+                    duration: 1.5,
+                    damage: 10,
+                    creator: this
+                };
+            }
+            return null;
+        }
+        
+        // If immobilized, skip all movement
+        if (this.immobilizedTime > 0) {
+            return null;
+        }
+        
+        // Handle delirious movement
+        if (this.deliriousTime > 0) {
+            this.deliriousPhaseTimer += dt;
+            if (this.deliriousPhaseTimer >= this.deliriousPhaseDuration) {
+                this.deliriousPhaseTimer = 0;
+                if (this.deliriousPhase === 'chase') {
+                    this.deliriousPhase = 'wander';
+                    this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+                } else {
+                    this.deliriousPhase = 'chase';
+                }
+            }
+            
+            if (this.deliriousPhase === 'chase') {
+                const dx = playerX - this.x;
+                const dy = playerY - this.y;
+                const dir = normalize(dx, dy);
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+            } else {
+                this.x += Math.cos(this.deliriousWanderAngle) * this.speed * dt;
+                this.y += Math.sin(this.deliriousWanderAngle) * this.speed * dt;
+            }
+            return null;
         }
         
         // Move toward player
@@ -1321,12 +1883,7 @@ export class GravitationalEnemy {
         this.velocityX *= 0.95;
         this.velocityY *= 0.95;
         
-        // Update visuals
-        this.pulsePhase += dt * 2;
-        
-        if (this.hurtTime > 0) {
-            this.hurtTime -= dt;
-        }
+        return null;
     }
     
     render(ctx, camera) {
@@ -1336,6 +1893,22 @@ export class GravitationalEnemy {
         const pulse = 1 + Math.sin(this.pulsePhase) * 0.1;
         
         ctx.save();
+        
+        // Burning panic visual effect - fiery glow
+        if (this.burningPanicTime > 0) {
+            const flameSize = r * 2.5;
+            const flameGradient = ctx.createRadialGradient(
+                screen.x, screen.y, 0,
+                screen.x, screen.y, flameSize
+            );
+            flameGradient.addColorStop(0, 'rgba(255, 100, 0, 0.8)');
+            flameGradient.addColorStop(0.5, 'rgba(255, 50, 0, 0.4)');
+            flameGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = flameGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, flameSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         // Slow effect visual
         if (this.slowTime > 0) {
@@ -1347,7 +1920,7 @@ export class GravitationalEnemy {
         
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('gravitational');
-        if (sprite && !this.hurtTime && !simplifiedRendering) {
+        if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
             const spriteScale = (r * 2) / spriteCache.baseSize * pulse;
             ctx.drawImage(
                 sprite,
@@ -1358,7 +1931,12 @@ export class GravitationalEnemy {
             );
         } else {
             // Simplified/fallback rendering
-            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            let baseColor = this.color;
+            if (this.hurtTime > 0) {
+                baseColor = '#ffffff';
+            } else if (this.burningPanicTime > 0) {
+                baseColor = '#ff6600';
+            }
             ctx.fillStyle = baseColor;
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r * pulse, 0, Math.PI * 2);
@@ -1409,11 +1987,46 @@ export class FastPurpleEnemy {
         // Knockback
         this.knockbackX = 0;
         this.knockbackY = 0;
+        
+        // Status effects from Crucible
+        this.deliriousTime = 0;
+        this.deliriousPhase = 'chase';
+        this.deliriousPhaseDuration = 0.8;
+        this.deliriousPhaseTimer = 0;
+        this.deliriousWanderAngle = 0;
+        
+        this.immobilizedTime = 0;
+        
+        // Burning panic state (triggered by Crucible burst at 90%)
+        this.burningPanicTime = 0;
+        this.burningPanicAngle = 0;
+        this.burningPanicSpeed = 450;
+        this.burningTrailTimer = 0;
+        this.burningTrailInterval = 0.05;
     }
     
     applySlow(amount, duration) {
         this.slowAmount = Math.max(this.slowAmount, amount);
         this.slowTime = Math.max(this.slowTime, duration);
+    }
+
+    applyDelirious(duration) {
+        if (this.deliriousTime <= 0) {
+            this.deliriousPhase = Math.random() < 0.5 ? 'chase' : 'wander';
+            this.deliriousPhaseTimer = 0;
+            this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+        }
+        this.deliriousTime = Math.max(this.deliriousTime, duration);
+    }
+
+    applyImmobilize(duration) {
+        this.immobilizedTime = Math.max(this.immobilizedTime, duration);
+    }
+
+    applyBurningPanic(duration) {
+        this.burningPanicTime = duration;
+        this.burningPanicAngle = Math.random() * Math.PI * 2;
+        this.immobilizedTime = 0;
     }
 
     applyKnockback(dirX, dirY, force) {
@@ -1437,12 +2050,85 @@ export class FastPurpleEnemy {
             this.speed = this.baseSpeed;
         }
         
-        // Apply knockback
+        // Update status effect timers
+        if (this.deliriousTime > 0) {
+            this.deliriousTime -= dt;
+        }
+        if (this.immobilizedTime > 0) {
+            this.immobilizedTime -= dt;
+        }
+        if (this.burningPanicTime > 0) {
+            this.burningPanicTime -= dt;
+        }
+        
+        // Apply knockback (even when immobilized)
         if (Math.abs(this.knockbackX) > 0.1 || Math.abs(this.knockbackY) > 0.1) {
             this.x += this.knockbackX * dt * 10;
             this.y += this.knockbackY * dt * 10;
             this.knockbackX *= 0.9;
             this.knockbackY *= 0.9;
+        }
+        
+        // Update visuals regardless of movement
+        this.trailPhase += dt * 5;
+        if (this.hurtTime > 0) {
+            this.hurtTime -= dt;
+        }
+        
+        // Handle burning panic
+        if (this.burningPanicTime > 0) {
+            if (Math.random() < 0.05) {
+                this.burningPanicAngle += (Math.random() - 0.5) * Math.PI * 0.5;
+            }
+            
+            this.x += Math.cos(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            this.y += Math.sin(this.burningPanicAngle) * this.burningPanicSpeed * dt;
+            
+            this.burningTrailTimer += dt;
+            if (this.burningTrailTimer >= this.burningTrailInterval) {
+                this.burningTrailTimer = 0;
+                return {
+                    type: 'fireTrail',
+                    x: this.x,
+                    y: this.y,
+                    radius: 18,
+                    duration: 1.5,
+                    damage: 8,
+                    creator: this
+                };
+            }
+            return null;
+        }
+        
+        // If immobilized, skip all movement
+        if (this.immobilizedTime > 0) {
+            return null;
+        }
+        
+        // Handle delirious movement
+        if (this.deliriousTime > 0) {
+            this.deliriousPhaseTimer += dt;
+            if (this.deliriousPhaseTimer >= this.deliriousPhaseDuration) {
+                this.deliriousPhaseTimer = 0;
+                if (this.deliriousPhase === 'chase') {
+                    this.deliriousPhase = 'wander';
+                    this.deliriousWanderAngle = Math.random() * Math.PI * 2;
+                } else {
+                    this.deliriousPhase = 'chase';
+                }
+            }
+            
+            if (this.deliriousPhase === 'chase') {
+                const dx = playerX - this.x;
+                const dy = playerY - this.y;
+                const dir = normalize(dx, dy);
+                this.x += dir.x * this.speed * dt;
+                this.y += dir.y * this.speed * dt;
+            } else {
+                this.x += Math.cos(this.deliriousWanderAngle) * this.speed * dt;
+                this.y += Math.sin(this.deliriousWanderAngle) * this.speed * dt;
+            }
+            return null;
         }
         
         // Chase player
@@ -1453,12 +2139,7 @@ export class FastPurpleEnemy {
         this.x += dir.x * this.speed * dt;
         this.y += dir.y * this.speed * dt;
         
-        // Update visuals
-        this.trailPhase += dt * 5;
-        
-        if (this.hurtTime > 0) {
-            this.hurtTime -= dt;
-        }
+        return null;
     }
     
     render(ctx, camera) {
@@ -1467,6 +2148,22 @@ export class FastPurpleEnemy {
         const r = this.radius * scale;
         
         ctx.save();
+        
+        // Burning panic visual effect - fiery glow
+        if (this.burningPanicTime > 0) {
+            const flameSize = r * 2.5;
+            const flameGradient = ctx.createRadialGradient(
+                screen.x, screen.y, 0,
+                screen.x, screen.y, flameSize
+            );
+            flameGradient.addColorStop(0, 'rgba(255, 100, 0, 0.8)');
+            flameGradient.addColorStop(0.5, 'rgba(255, 50, 0, 0.4)');
+            flameGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = flameGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, flameSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         // Slow effect visual
         if (this.slowTime > 0) {
@@ -1478,7 +2175,7 @@ export class FastPurpleEnemy {
         
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('fastPurple');
-        if (sprite && !this.hurtTime && !simplifiedRendering) {
+        if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
             const spriteScale = (r * 4) / spriteCache.baseSize;
             ctx.drawImage(
                 sprite,
@@ -1489,7 +2186,12 @@ export class FastPurpleEnemy {
             );
         } else {
             // Simplified/fallback rendering
-            const baseColor = this.hurtTime > 0 ? '#ffffff' : this.color;
+            let baseColor = this.color;
+            if (this.hurtTime > 0) {
+                baseColor = '#ffffff';
+            } else if (this.burningPanicTime > 0) {
+                baseColor = '#ff6600';
+            }
             ctx.fillStyle = baseColor;
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);

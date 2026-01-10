@@ -1,6 +1,6 @@
 // Projectile and spell effect classes
 
-import { distance, normalize, angle } from './utils.js';
+import { distance, normalize } from './utils.js';
 import { circleCollision } from './collision.js';
 
 // Base projectile class
@@ -296,6 +296,214 @@ export class RingEffect {
         ctx.beginPath();
         ctx.arc(screen.x, screen.y, this.currentRadius * scale, 0, Math.PI * 2);
         ctx.stroke();
+        
+        ctx.restore();
+    }
+}
+
+// Crucible effect - area that glows brighter then fades, applies status effects
+export class CrucibleEffect {
+    constructor(x, y, radius, duration, options = {}) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.duration = duration;
+        this.age = 0;
+        this.baseColor = options.baseColor || '#8b0000'; // Dark red
+        this.peakColor = options.peakColor || '#ff4500'; // Bright orange-red
+        this.level = options.level || 1;
+        
+        // Glow animation phases:
+        // 0-40% duration: dim glow, slowly brightening
+        // 40-70% duration: rapid brightening to peak
+        // 70-100% duration: fade out
+        this.brightenPhase1 = 0.4;
+        this.brightenPhase2 = 0.7;
+        
+        // Status effect timing
+        this.deliriousTriggerProgress = 0.30; // 10% into effect
+        this.immobilizeTriggerProgress = 0.70; // 50% into effect
+        this.burstTriggerProgress = 0.90; // 90% into effect - enemies burst into flames
+        
+        // Track if effects have been triggered (one-time triggers)
+        this.deliriousTriggered = false;
+        this.immobilizeTriggered = false;
+        this.burstTriggered = false;
+        
+        // Track which enemies have been immobilized (to avoid re-selecting)
+        this.immobilizedEnemies = new Set();
+        
+        // Base count for immobilize (scales with level)
+        this.baseImmobilizeCount = 5;
+        
+        // Damage settings
+        this.baseDamage = 2; // Base damage per tick
+        this.damageInterval = 0.5; // Damage every 0.5 seconds
+        this.damageTimer = 0;
+    }
+
+    update(dt) {
+        this.age += dt;
+        this.damageTimer += dt;
+        return this.age < this.duration;
+    }
+    
+    // Check if damage should be applied this frame
+    canDamage() {
+        if (this.damageTimer >= this.damageInterval) {
+            this.damageTimer = 0;
+            return true;
+        }
+        return false;
+    }
+    
+    // Get damage amount (scales with intensity/progress)
+    getDamage() {
+        const intensity = this.getGlowIntensity();
+        // Damage scales from base to 3x base based on intensity
+        return this.baseDamage * (1 + intensity * 2) * this.level;
+    }
+    
+    // Get the current progress of the effect (0 to 1)
+    getProgress() {
+        return this.age / this.duration;
+    }
+    
+    // Check if an enemy is within the crucible area
+    isEnemyInArea(enemy) {
+        const dist = distance(this.x, this.y, enemy.x, enemy.y);
+        return dist < this.radius + enemy.radius;
+    }
+    
+    // Check if delirious should be triggered this frame
+    shouldTriggerDelirious() {
+        if (this.deliriousTriggered) return false;
+        const progress = this.getProgress();
+        if (progress >= this.deliriousTriggerProgress) {
+            this.deliriousTriggered = true;
+            return true;
+        }
+        return false;
+    }
+    
+    // Check if immobilize should be triggered this frame
+    shouldTriggerImmobilize() {
+        if (this.immobilizeTriggered) return false;
+        const progress = this.getProgress();
+        if (progress >= this.immobilizeTriggerProgress) {
+            this.immobilizeTriggered = true;
+            return true;
+        }
+        return false;
+    }
+    
+    // Check if burst should be triggered this frame (at 90% - enemies burst into flames)
+    shouldTriggerBurst() {
+        if (this.burstTriggered) return false;
+        const progress = this.getProgress();
+        if (progress >= this.burstTriggerProgress) {
+            this.burstTriggered = true;
+            return true;
+        }
+        return false;
+    }
+    
+    // Get the number of enemies to immobilize based on level
+    getImmobilizeCount() {
+        return this.baseImmobilizeCount + Math.floor((this.level - 1) * 2);
+    }
+    
+    // Get the remaining duration for status effects
+    getRemainingDuration() {
+        return Math.max(0, this.duration - this.age);
+    }
+
+    // Calculate current glow intensity (0 to 1)
+    getGlowIntensity() {
+        const progress = this.age / this.duration;
+        
+        if (progress < this.brightenPhase1) {
+            // Phase 1: dim glow, slowly brightening (0.1 to 0.3)
+            const phaseProgress = progress / this.brightenPhase1;
+            return 0.1 + phaseProgress * 0.2;
+        } else if (progress < this.brightenPhase2) {
+            // Phase 2: rapid brightening (0.3 to 1.0)
+            const phaseProgress = (progress - this.brightenPhase1) / (this.brightenPhase2 - this.brightenPhase1);
+            return 0.3 + phaseProgress * 0.7;
+        } else {
+            // Phase 3: fade out (1.0 to 0)
+            const phaseProgress = (progress - this.brightenPhase2) / (1 - this.brightenPhase2);
+            return 1.0 - phaseProgress;
+        }
+    }
+
+    render(ctx, camera) {
+        const screen = camera.worldToScreen(this.x, this.y);
+        const scale = camera.zoom;
+        const r = this.radius * scale;
+        const intensity = this.getGlowIntensity();
+        
+        ctx.save();
+        
+        // Calculate color based on intensity
+        // Interpolate from dark red to bright orange-red
+        const baseR = 139, baseG = 0, baseB = 0;      // #8b0000
+        const peakR = 255, peakG = 69, peakB = 0;     // #ff4500
+        
+        const currentR = Math.floor(baseR + (peakR - baseR) * intensity);
+        const currentG = Math.floor(baseG + (peakG - baseG) * intensity);
+        const currentB = Math.floor(baseB + (peakB - baseB) * intensity);
+        
+        // Outer glow - larger, more diffuse
+        const outerGradient = ctx.createRadialGradient(
+            screen.x, screen.y, 0,
+            screen.x, screen.y, r * 1.3
+        );
+        outerGradient.addColorStop(0, `rgba(${currentR}, ${currentG}, ${currentB}, ${intensity * 0.6})`);
+        outerGradient.addColorStop(0.5, `rgba(${currentR}, ${currentG}, ${currentB}, ${intensity * 0.3})`);
+        outerGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        
+        ctx.fillStyle = outerGradient;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, r * 1.3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner core glow - more intense
+        const innerGradient = ctx.createRadialGradient(
+            screen.x, screen.y, 0,
+            screen.x, screen.y, r * 0.7
+        );
+        
+        // At peak intensity, add white-hot center
+        const coreIntensity = Math.pow(intensity, 2);
+        const coreR = Math.min(255, currentR + 100 * coreIntensity);
+        const coreG = Math.min(255, currentG + 80 * coreIntensity);
+        const coreB = Math.min(255, currentB + 60 * coreIntensity);
+        
+        innerGradient.addColorStop(0, `rgba(${coreR}, ${coreG}, ${coreB}, ${intensity * 0.9})`);
+        innerGradient.addColorStop(0.6, `rgba(${currentR}, ${currentG}, ${currentB}, ${intensity * 0.5})`);
+        innerGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        
+        ctx.fillStyle = innerGradient;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, r * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Subtle pulsing particles at higher intensities
+        if (intensity > 0.3) {
+            const particleCount = Math.floor(5 * intensity);
+            for (let i = 0; i < particleCount; i++) {
+                const particleAngle = (this.age * 2 + i * Math.PI * 2 / particleCount);
+                const particleDist = r * 0.4 * (0.5 + 0.5 * Math.sin(this.age * 3 + i));
+                const px = screen.x + Math.cos(particleAngle) * particleDist;
+                const py = screen.y + Math.sin(particleAngle) * particleDist;
+                
+                ctx.fillStyle = `rgba(255, ${100 + Math.floor(intensity * 100)}, 50, ${intensity * 0.7})`;
+                ctx.beginPath();
+                ctx.arc(px, py, 3 * scale * intensity, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
         
         ctx.restore();
     }

@@ -4,7 +4,7 @@ import { Player } from './player.js';
 import { Camera } from './camera.js';
 import { Builder, Fighter, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, spriteCache, setSimplifiedRendering } from './enemy.js';
 import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
-import { Projectile, AreaEffect, RingEffect } from './projectile.js';
+import { Projectile, AreaEffect, RingEffect, CrucibleEffect } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
 import { PowerRune } from './powerRune.js';
 import { FloatingText } from './floatingText.js';
@@ -110,6 +110,7 @@ class Game {
         this.projectiles = [];
         this.areaEffects = [];
         this.ringEffects = [];
+        this.crucibleEffects = [];
         this.floatingTexts = [];
         
         // Spawners
@@ -124,7 +125,8 @@ class Game {
             this.player,
             this.projectiles,
             this.areaEffects,
-            this.ringEffects
+            this.ringEffects,
+            this.crucibleEffects
         );
         // Set all enemy arrays for power manager
         this.updatePowerManagerEnemies();
@@ -253,12 +255,46 @@ class Game {
         
         // Update builders (pass spawn blocks so they can be attracted to towers)
         for (const builder of this.builders) {
-            builder.update(dt, this.player.x, this.player.y, this.crystals, this.spawnBlocks);
+            const trailInfo = builder.update(dt, this.player.x, this.player.y, this.crystals, this.spawnBlocks);
+            if (trailInfo) {
+                this.areaEffects.push(new AreaEffect(
+                    trailInfo.x,
+                    trailInfo.y,
+                    trailInfo.radius,
+                    trailInfo.damage,
+                    trailInfo.duration,
+                    {
+                        color: '#ff4500',
+                        damageInterval: 1.0,
+                        type: 'fireTrail',
+                        damagePlayer: true,
+                        playerDamage: trailInfo.damage,
+                        creator: trailInfo.creator
+                    }
+                ));
+            }
         }
         
         // Update fighters (pass spawn blocks so fighters can prioritize them)
         for (const fighter of this.fighters) {
-            fighter.update(dt, this.player.x, this.player.y, this.spawnBlocks);
+            const trailInfo = fighter.update(dt, this.player.x, this.player.y, this.spawnBlocks);
+            if (trailInfo) {
+                this.areaEffects.push(new AreaEffect(
+                    trailInfo.x,
+                    trailInfo.y,
+                    trailInfo.radius,
+                    trailInfo.damage,
+                    trailInfo.duration,
+                    {
+                        color: '#ff4500',
+                        damageInterval: 1.0,
+                        type: 'fireTrail',
+                        damagePlayer: true,
+                        playerDamage: trailInfo.damage,
+                        creator: trailInfo.creator
+                    }
+                ));
+            }
         }
         
         // Check builder-crystal collisions
@@ -381,12 +417,75 @@ class Game {
         
         // Update gravitational enemies (with mutual attraction)
         for (const grav of this.gravitationalEnemies) {
-            grav.update(dt, this.player.x, this.player.y, this.gravitationalEnemies);
+            const trailInfo = grav.update(dt, this.player.x, this.player.y, this.gravitationalEnemies);
+            if (trailInfo) {
+                this.areaEffects.push(new AreaEffect(
+                    trailInfo.x,
+                    trailInfo.y,
+                    trailInfo.radius,
+                    trailInfo.damage,
+                    trailInfo.duration,
+                    {
+                        color: '#ff4500',
+                        damageInterval: 1.0,
+                        type: 'fireTrail',
+                        damagePlayer: true,
+                        playerDamage: trailInfo.damage,
+                        creator: trailInfo.creator
+                    }
+                ));
+            }
         }
         
         // Update fast purple enemies
         for (const purple of this.fastPurpleEnemies) {
-            purple.update(dt, this.player.x, this.player.y);
+            const trailInfo = purple.update(dt, this.player.x, this.player.y);
+            if (trailInfo) {
+                this.areaEffects.push(new AreaEffect(
+                    trailInfo.x,
+                    trailInfo.y,
+                    trailInfo.radius,
+                    trailInfo.damage,
+                    trailInfo.duration,
+                    {
+                        color: '#ff4500',
+                        damageInterval: 1.0,
+                        type: 'fireTrail',
+                        damagePlayer: true,
+                        playerDamage: trailInfo.damage,
+                        creator: trailInfo.creator
+                    }
+                ));
+            }
+        }
+        
+        // Apply burning damage to enemies in burning panic state
+        const burningDamagePerSecond = 25; // Substantial damage
+        const burningDamage = burningDamagePerSecond * dt;
+        
+        const allBurningEnemies = [
+            ...this.builders,
+            ...this.fighters,
+            ...this.fieryEnemies,
+            ...this.gravitationalEnemies,
+            ...this.fastPurpleEnemies
+        ];
+        
+        for (const enemy of allBurningEnemies) {
+            if (enemy._dead) continue;
+            if (enemy.burningPanicTime && enemy.burningPanicTime > 0) {
+                if (enemy.takeDamage(burningDamage)) {
+                    this.awardXp(enemy.xp);
+                    if (enemy._sourceArray) {
+                        const idx = enemy._sourceArray.indexOf(enemy);
+                        if (idx !== -1) {
+                            enemy._sourceArray.splice(idx, 1);
+                        }
+                    }
+                    enemy._dead = true;
+                    this.enemiesDefeated++;
+                }
+            }
         }
         
         // Update power manager
@@ -525,6 +624,120 @@ class Game {
                 for (const enemy of nearbyEnemies) {
                     if (enemy._dead) continue;
                     effect.affectEnemy(enemy);
+                }
+            }
+        }
+        
+        // Update crucible effects and apply status effects
+        for (let i = this.crucibleEffects.length - 1; i >= 0; i--) {
+            const crucible = this.crucibleEffects[i];
+            if (!crucible.update(dt)) {
+                this.crucibleEffects.splice(i, 1);
+                continue;
+            }
+            
+            // Get all enemies that could be affected
+            const allEnemies = [
+                ...this.builders,
+                ...this.fighters,
+                ...this.fieryEnemies,
+                ...this.gravitationalEnemies,
+                ...this.fastPurpleEnemies,
+                ...this.spawnBlocks
+            ].filter(e => !e._dead);
+            
+            // Apply damage to enemies in the crucible area
+            if (crucible.canDamage()) {
+                const damage = crucible.getDamage();
+                for (const enemy of allEnemies) {
+                    if (crucible.isEnemyInArea(enemy)) {
+                        if (enemy.takeDamage(damage)) {
+                            this.awardXp(enemy.xp);
+                            if (enemy._isSpawnBlock) {
+                                this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
+                            }
+                            if (enemy._sourceArray) {
+                                const idx = enemy._sourceArray.indexOf(enemy);
+                                if (idx !== -1) {
+                                    enemy._sourceArray.splice(idx, 1);
+                                }
+                            }
+                            enemy._dead = true;
+                            this.enemiesDefeated++;
+                        }
+                    }
+                }
+            }
+            
+            // Check if delirious should be triggered (at 10% progress)
+            if (crucible.shouldTriggerDelirious()) {
+                const remainingDuration = crucible.getRemainingDuration();
+                for (const enemy of allEnemies) {
+                    // SpawnBlocks don't get delirious
+                    if (enemy.type === undefined) continue;
+                    
+                    if (crucible.isEnemyInArea(enemy)) {
+                        if (typeof enemy.applyDelirious === 'function') {
+                            enemy.applyDelirious(remainingDuration);
+                        }
+                    }
+                }
+            }
+            
+            // Check if immobilize should be triggered (at 50% progress)
+            if (crucible.shouldTriggerImmobilize()) {
+                const remainingDuration = crucible.getRemainingDuration();
+                const immobilizeCount = crucible.getImmobilizeCount();
+                
+                // Get enemies in the area that can be immobilized
+                const eligibleEnemies = allEnemies.filter(enemy => {
+                    // SpawnBlocks don't get immobilized
+                    if (enemy.type === undefined) return false;
+                    if (!crucible.isEnemyInArea(enemy)) return false;
+                    if (typeof enemy.applyImmobilize !== 'function') return false;
+                    return true;
+                });
+                
+                // Randomly select enemies to immobilize
+                const toImmobilize = [];
+                const shuffled = [...eligibleEnemies].sort(() => Math.random() - 0.5);
+                for (let j = 0; j < Math.min(immobilizeCount, shuffled.length); j++) {
+                    toImmobilize.push(shuffled[j]);
+                }
+                
+                // Apply immobilize
+                for (const enemy of toImmobilize) {
+                    enemy.applyImmobilize(remainingDuration);
+                    crucible.immobilizedEnemies.add(enemy);
+                }
+            }
+            
+            // Check if burst should be triggered (at 90% progress - enemies burst into flames!)
+            if (crucible.shouldTriggerBurst()) {
+                const remainingDuration = crucible.getRemainingDuration();
+                
+                // Get all still-immobilized enemies from this crucible
+                for (const enemy of crucible.immobilizedEnemies) {
+                    // Skip if enemy was killed or is no longer valid
+                    if (enemy._dead || !enemy) continue;
+                    
+                    // Create explosion effect around the enemy
+                    this.ringEffects.push(new RingEffect(
+                        enemy.x,
+                        enemy.y,
+                        80, // Explosion radius
+                        15, // Small damage
+                        0.4,
+                        {
+                            color: '#ff4500',
+                            knockback: 60
+                        }
+                    ));
+                    
+                    // Apply burning panic - enemy runs around on fire
+                    if (typeof enemy.applyBurningPanic === 'function') {
+                        enemy.applyBurningPanic(remainingDuration + 1.0); // Extra second of panic
+                    }
                 }
             }
         }
@@ -890,7 +1103,7 @@ class Game {
      */
     spawnPowerRunes(x, y, crystalType) {
         const powersByCategory = {
-            heat: ['fireballBarrage', 'magmaPool', 'infernoRing'],
+            heat: ['crucible', 'magmaPool', 'infernoRing'],
             cold: ['iceShards', 'frostNova', 'frozenArmor'],
             force: ['forceBolt', 'gravityWell', 'orbitalShields']
         };
@@ -968,6 +1181,11 @@ class Game {
         
         // Draw ambient particles
         this.renderAmbientParticles();
+        
+        // Draw crucible effects (under everything)
+        for (const crucible of this.crucibleEffects) {
+            crucible.render(ctx, this.camera);
+        }
         
         // Draw area effects (under everything)
         for (const effect of this.areaEffects) {
