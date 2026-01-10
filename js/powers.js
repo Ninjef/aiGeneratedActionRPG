@@ -1,6 +1,6 @@
 // Power definitions and management system
 
-import { Projectile, AreaEffect, RingEffect, OrbitalShield, CrucibleEffect } from './projectile.js';
+import { Projectile, AreaEffect, RingEffect, OrbitalShield, CrucibleEffect, CryostasisBeam } from './projectile.js';
 import { randomRange, angle, normalize, randomChoice } from './utils.js';
 import { findClosest } from './collision.js';
 import { getCooldownReductionForCategory, getProjectileSpeedBonus } from './passiveUpgrades.js';
@@ -88,6 +88,21 @@ export const POWERS = {
             slowAmount: 1.0
         }
     },
+    cryostasis: {
+        id: 'cryostasis',           // Unique identifier (must match key)
+        name: 'Cryostasis',       // Display name
+        description: 'Ice beam that freezes enemies in place',  // Tooltip text
+        category: 'cold',           // 'heat' | 'cold' | 'force'
+        baseCooldown: 5.0,          // Seconds between casts
+        passive: false,             // true for always-active powers
+        levelScale: {
+            cooldown: 0.88,         // Multiplier per level (< 1 = faster)
+            damage: 1.15,           // Multiplier per level (> 1 = stronger)
+            // Add any custom scaling properties your power needs
+        },
+        baseBeams: 1,
+        baseRefractionBeams: 1,
+    },
 
     // FORCE POWERS
     forceBolt: {
@@ -134,12 +149,13 @@ export const POWERS = {
 };
 
 export class PowerManager {
-    constructor(player, projectiles, areaEffects, ringEffects, crucibleEffects = []) {
+    constructor(player, projectiles, areaEffects, ringEffects, crucibleEffects = [], cryostasisBeams = []) {
         this.player = player;
         this.projectiles = projectiles;
         this.areaEffects = areaEffects;
         this.ringEffects = ringEffects;
         this.crucibleEffects = crucibleEffects;
+        this.cryostasisBeams = cryostasisBeams;
         this.cooldowns = {};
         this.orbitalShields = []; // Array of active orbital shield instances
         this.nextShieldAngle = 0; // Track where to spawn next shield
@@ -252,6 +268,9 @@ export class PowerManager {
                 break;
             case 'orbitalShields':
                 this.castOrbitalShields(level, def);
+                break;
+            case 'cryostasis':
+                this.castCryostasis(level, def);
                 break;
         }
     }
@@ -474,6 +493,38 @@ export class PowerManager {
         this.nextShieldAngle += Math.PI * 0.7; // ~126 degrees apart
     }
 
+    castCryostasis(level, def) {
+        // Find nearest enemy to target
+        const allTargets = this.getAllTargets();
+        const nearest = findClosest(allTargets, this.player.x, this.player.y);
+        
+        // Don't cast if no targets
+        if (!nearest) {
+            return;
+        }
+        
+        // Make target invulnerable immediately (they're being used as a prism)
+        if (typeof nearest.cryostasisInvulnerable !== 'undefined') {
+            nearest.cryostasisInvulnerable = true;
+        }
+        
+        // Calculate damage (scales with level)
+        const damage = 35 * Math.pow(def.levelScale.damage || 1, level - 1);
+        const duration = 4.0;
+        
+        const beam = new CryostasisBeam(
+            this.player,
+            nearest,
+            duration,
+            {
+                level: level,
+                damage: damage
+            }
+        );
+        
+        this.cryostasisBeams.push(beam);
+    }
+
     checkOrbitalShieldCollisions(enemies) {
         if (this.orbitalShields.length === 0) return [];
         
@@ -498,7 +549,7 @@ export class PowerManager {
     static generatePowerOptions(category, existingPowers) {
         const powersByCategory = {
             heat: ['crucible', 'magmaPool', 'infernoRing'],
-            cold: ['iceShards', 'frostNova', 'frozenArmor'],
+            cold: ['iceShards', 'frostNova', 'frozenArmor', 'cryostasis'],
             force: ['forceBolt', 'gravityWell', 'orbitalShields']
         };
 

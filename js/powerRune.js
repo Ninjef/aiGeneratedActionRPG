@@ -180,6 +180,79 @@ const POWER_ICONS = {
             ctx.stroke();
         }
     },
+    cryostasis: {
+        color: '#88ddff',
+        glowColor: 'rgba(136, 221, 255, 0.6)',
+        render: (ctx, x, y, size) => {
+            // Ice beam with frozen target - beam line with crystal at end
+            
+            // Main beam line (diagonal)
+            ctx.strokeStyle = '#aaeeff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.6, y + size * 0.4);
+            ctx.lineTo(x + size * 0.3, y - size * 0.3);
+            ctx.stroke();
+            
+            // Beam glow
+            ctx.strokeStyle = 'rgba(136, 221, 255, 0.5)';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.6, y + size * 0.4);
+            ctx.lineTo(x + size * 0.3, y - size * 0.3);
+            ctx.stroke();
+            
+            // Frozen target - ice crystal/sphere at beam end
+            const crystalX = x + size * 0.35;
+            const crystalY = y - size * 0.35;
+            
+            // Ice sphere
+            const gradient = ctx.createRadialGradient(
+                crystalX - size * 0.1, crystalY - size * 0.1, 0,
+                crystalX, crystalY, size * 0.35
+            );
+            gradient.addColorStop(0, 'rgba(220, 250, 255, 0.9)');
+            gradient.addColorStop(0.5, 'rgba(136, 221, 255, 0.7)');
+            gradient.addColorStop(1, 'rgba(79, 195, 247, 0.4)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(crystalX, crystalY, size * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ice shards radiating from frozen target
+            ctx.strokeStyle = '#aaeeff';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 5; i++) {
+                const shardAngle = (i / 5) * Math.PI * 2 + Math.PI / 10;
+                const shardLen = size * 0.2;
+                ctx.beginPath();
+                ctx.moveTo(
+                    crystalX + Math.cos(shardAngle) * size * 0.25,
+                    crystalY + Math.sin(shardAngle) * size * 0.25
+                );
+                ctx.lineTo(
+                    crystalX + Math.cos(shardAngle) * (size * 0.25 + shardLen),
+                    crystalY + Math.sin(shardAngle) * (size * 0.25 + shardLen)
+                );
+                ctx.stroke();
+            }
+            
+            // Rainbow refraction beams (small hints)
+            ctx.lineWidth = 1.5;
+            const colors = ['#ff6b6b', '#ffd93d', '#6bcb77'];
+            for (let i = 0; i < 3; i++) {
+                ctx.strokeStyle = colors[i];
+                const refractAngle = Math.PI * 0.1 + (i * Math.PI * 0.15);
+                ctx.beginPath();
+                ctx.moveTo(crystalX, crystalY);
+                ctx.lineTo(
+                    crystalX + Math.cos(refractAngle) * size * 0.4,
+                    crystalY + Math.sin(refractAngle) * size * 0.4
+                );
+                ctx.stroke();
+            }
+        }
+    },
 
     // FORCE POWERS - Purple theme
     forceBolt: {

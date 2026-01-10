@@ -12,13 +12,11 @@ describe('PowerManager', () => {
             expect(options[2].category).toBe('heat');
         });
 
-        it('should return 3 cold powers when category is cold', () => {
+        it('should return 4 cold powers when category is cold', () => {
             const options = PowerManager.generatePowerOptions('cold', []);
             
-            expect(options).toHaveLength(3);
-            expect(options[0].category).toBe('cold');
-            expect(options[1].category).toBe('cold');
-            expect(options[2].category).toBe('cold');
+            expect(options).toHaveLength(4);
+            expect(options.every(o => o.category === 'cold')).toBe(true);
         });
 
         it('should return 3 force powers when category is force', () => {

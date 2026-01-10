@@ -509,6 +509,609 @@ export class CrucibleEffect {
     }
 }
 
+// Cryostasis effect - ice beam that freezes enemy, then refracts rainbow beams
+export class CryostasisBeam {
+    constructor(source, target, duration, options = {}) {
+        this.source = source; // Player reference (for refraction direction)
+        this.target = target; // Target enemy
+        this.duration = duration; // Total duration (~4 seconds)
+        this.age = 0;
+        this.level = options.level || 1;
+        
+        // Beam properties - starts narrow/dim, grows intense
+        this.baseWidth = 3;
+        this.maxWidth = 8;
+        
+        // Phase timing
+        this.freezeTime = 2.0; // When enemy gets frozen and encased
+        
+        // State tracking
+        this.freezeTriggered = false;
+        this.targetFrozen = false;
+        
+        // Refracted beams - emerge after freeze, direction based on player angle
+        this.refractedBeams = [];
+        this.baseRefractCount = 3; // Start with 3 beams
+        this.maxRefractCount = Math.min(8, 3 + Math.floor(this.level / 2)); // Scales with level
+        this.refractSpawnInterval = 0.5; // Time between new refract beams spawning (after initial burst)
+        this.lastRefractSpawn = 0;
+        this.initialBeamsSpawned = false;
+        this.randomAngleOffset = Math.random() * Math.PI * 2; // Random starting angle for the fan
+        this.initialPlayerAngle = 0; // Set when beams first spawn, used for amplified rotation
+        
+        // Refracted beam damage (fast ticks, lower damage per tick)
+        this.baseDamage = options.damage || 12; // Lower per-tick damage
+        this.damageInterval = 0.05; // Very fast tick rate - enemies get hit even with brief exposure
+        this.damageTimer = 0;
+        
+        // Ice encasement visual
+        this.iceShards = [];
+        this.generateIceShards();
+        
+        // Particle effects along beam
+        this.beamParticles = [];
+    }
+    
+    generateIceShards() {
+        // Pre-generate ice crystal shard positions for the encasement
+        const shardCount = 8 + Math.floor(Math.random() * 5);
+        for (let i = 0; i < shardCount; i++) {
+            this.iceShards.push({
+                angle: (Math.PI * 2 / shardCount) * i + Math.random() * 0.3,
+                length: 20 + Math.random() * 25,
+                width: 4 + Math.random() * 6,
+                offset: Math.random() * 0.3, // Slight timing offset for animation
+                hue: 180 + Math.random() * 40 // Cyan to blue range
+            });
+        }
+    }
+
+    update(dt) {
+        this.age += dt;
+        this.damageTimer += dt;
+        
+        // Check if target is still valid (but keep beam if frozen - permanent ice block)
+        if (!this.target || (this.target._dead && !this.targetFrozen)) {
+            return false;
+        }
+        
+        // Update beam particles
+        this.updateBeamParticles(dt);
+        
+        // Note: freeze trigger is handled by game.js via shouldTriggerFreeze()/markFreezeTriggered()
+        // After freeze, manage refracted beams
+        if (this.targetFrozen) {
+            this.updateRefractedBeams(dt);
+        }
+        
+        return this.age < this.duration;
+    }
+    
+    updateBeamParticles(dt) {
+        // Spawn particles along the beam
+        if (Math.random() < 0.3) {
+            const t = Math.random();
+            const startX = this.source.x;
+            const startY = this.source.y;
+            const targetX = this.target.x;
+            const targetY = this.target.y;
+            
+            this.beamParticles.push({
+                x: startX + (targetX - startX) * t,
+                y: startY + (targetY - startY) * t,
+                vx: (Math.random() - 0.5) * 20,
+                vy: (Math.random() - 0.5) * 20,
+                life: 0.3 + Math.random() * 0.3,
+                age: 0,
+                size: 2 + Math.random() * 3
+            });
+        }
+        
+        // Update existing particles
+        this.beamParticles = this.beamParticles.filter(p => {
+            p.age += dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            return p.age < p.life;
+        });
+    }
+    
+    updateRefractedBeams(dt) {
+        // Calculate angle from target to player (refraction source direction)
+        const dx = this.source.x - this.target.x;
+        const dy = this.source.y - this.target.y;
+        const playerAngle = Math.atan2(dy, dx);
+        
+        // Spawn initial burst of beams immediately when freeze triggers
+        if (!this.initialBeamsSpawned) {
+            this.initialBeamsSpawned = true;
+            // Store the initial player angle as reference for amplified rotation
+            this.initialPlayerAngle = playerAngle;
+            for (let i = 0; i < this.baseRefractCount; i++) {
+                this.spawnRefractedBeam(playerAngle, i, this.baseRefractCount);
+            }
+        }
+        
+        // Spawn additional refracted beams over time (beyond initial burst)
+        const timeSinceFreeze = this.age - this.freezeTime;
+        if (timeSinceFreeze - this.lastRefractSpawn >= this.refractSpawnInterval && 
+            this.refractedBeams.length < this.maxRefractCount) {
+            this.lastRefractSpawn = timeSinceFreeze;
+            this.spawnRefractedBeam(playerAngle, this.refractedBeams.length, this.maxRefractCount);
+        }
+        
+        // Calculate amplified rotation - small player movement = big beam rotation
+        // The beams rotate 4x faster than the player moves around the target
+        const angleFromInitial = this.normalizeAngle(playerAngle - this.initialPlayerAngle);
+        const amplifiedAngle = this.initialPlayerAngle + angleFromInitial * 4; // 4x amplification
+        
+        // Update existing refracted beams - they rotate based on player position (amplified)
+        this.refractedBeams.forEach((beam, index) => {
+            beam.age += dt;
+            
+            // Base angle offset from amplified player direction (spread out from player) + random offset
+            const spreadAngle = (Math.PI * 1.2); // Wider spread range (~216 degrees)
+            const angleOffset = ((index / Math.max(1, this.refractedBeams.length - 1)) - 0.5) * spreadAngle;
+            
+            // Target angle uses amplified rotation (refracting away from amplified player position)
+            const targetAngle = amplifiedAngle + Math.PI + angleOffset + this.randomAngleOffset;
+            
+            // Fast snap to target angle (nearly instant response)
+            const angleDiff = this.normalizeAngle(targetAngle - beam.angle);
+            beam.angle += angleDiff * 15 * dt; // Very fast rotation to follow amplified angle
+            
+            // Shimmer/color cycling
+            beam.hueOffset += 60 * dt; // Cycle through rainbow
+        });
+    }
+    
+    spawnRefractedBeam(playerAngle, index, totalCount) {
+        // Spawn with fanned out angles + random offset - INSTANT full length
+        const spreadAngle = (Math.PI * 1.2); // Wider spread
+        const angleOffset = ((index / Math.max(1, totalCount - 1)) - 0.5) * spreadAngle;
+        const beamLength = 750 + Math.random() * 500; // Full length immediately
+        
+        this.refractedBeams.push({
+            angle: playerAngle + Math.PI + angleOffset + this.randomAngleOffset,
+            length: beamLength, // Start at full length (instant)
+            maxLength: beamLength,
+            width: 3 + Math.random() * 2,
+            age: 0,
+            hueOffset: index * 40, // Start at different hue positions
+            alpha: 0.6 + Math.random() * 0.2
+        });
+    }
+    
+    normalizeAngle(angle) {
+        while (angle > Math.PI) angle -= Math.PI * 2;
+        while (angle < -Math.PI) angle += Math.PI * 2;
+        return angle;
+    }
+    
+    // Get the current intensity of the main beam (0 to 1)
+    getBeamIntensity() {
+        // Ramps up over the duration, peaks near freeze time, stays high after
+        if (this.age < this.freezeTime) {
+            // Gradual increase to freeze point
+            const progress = this.age / this.freezeTime;
+            return 0.2 + progress * 0.8;
+        } else {
+            // After freeze, full intensity with slight pulse
+            return 0.9 + 0.1 * Math.sin(this.age * 8);
+        }
+    }
+    
+    // Check if freeze should be triggered (for game.js to apply status)
+    shouldTriggerFreeze() {
+        if (!this.freezeTriggered && this.age >= this.freezeTime) {
+            return true;
+        }
+        return false;
+    }
+    
+    // Mark freeze as handled
+    markFreezeTriggered() {
+        this.freezeTriggered = true;
+        this.targetFrozen = true;
+    }
+    
+    // Get remaining duration after freeze for permanent immobilize
+    getRemainingDuration() {
+        return Math.max(0, this.duration - this.age);
+    }
+    
+    // Check if refracted beams should deal damage this frame
+    canDamage() {
+        if (!this.targetFrozen || this.refractedBeams.length === 0) {
+            return false;
+        }
+        if (this.damageTimer >= this.damageInterval) {
+            this.damageTimer = 0;
+            return true;
+        }
+        return false;
+    }
+    
+    // Get damage per refracted beam
+    getDamage() {
+        return this.baseDamage * (1 + (this.level - 1) * 0.15);
+    }
+    
+    // Get the world position of each refracted beam's end point
+    getRefractedBeamEndpoints() {
+        if (!this.targetFrozen) return [];
+        
+        return this.refractedBeams.map(beam => ({
+            startX: this.target.x,
+            startY: this.target.y,
+            endX: this.target.x + Math.cos(beam.angle) * beam.length,
+            endY: this.target.y + Math.sin(beam.angle) * beam.length
+        }));
+    }
+    
+    // Check if a line segment intersects a circle - returns closest hit or null
+    // Used for refracted beam collision checking (no pierce - first hit only)
+    checkBeamCollision(enemies) {
+        if (!this.targetFrozen || this.refractedBeams.length === 0) {
+            return [];
+        }
+        
+        const hits = [];
+        
+        for (const beam of this.refractedBeams) {
+            const startX = this.target.x;
+            const startY = this.target.y;
+            const endX = this.target.x + Math.cos(beam.angle) * beam.length;
+            const endY = this.target.y + Math.sin(beam.angle) * beam.length;
+            
+            // Find closest enemy hit by this beam (no pierce)
+            let closestEnemy = null;
+            let closestDist = Infinity;
+            
+            for (const enemy of enemies) {
+                // Skip the frozen target
+                if (enemy === this.target) continue;
+                if (enemy._dead) continue;
+                
+                // Line-circle intersection check
+                const hit = this.lineCircleIntersection(
+                    startX, startY, endX, endY,
+                    enemy.x, enemy.y, enemy.radius
+                );
+                
+                if (hit && hit.distance < closestDist) {
+                    closestDist = hit.distance;
+                    closestEnemy = enemy;
+                }
+            }
+            
+            if (closestEnemy) {
+                hits.push(closestEnemy);
+            }
+        }
+        
+        return hits;
+    }
+    
+    // Line segment to circle intersection - returns { distance } or null
+    lineCircleIntersection(x1, y1, x2, y2, cx, cy, r) {
+        // Direction vector of the line
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        
+        // Vector from line start to circle center
+        const fx = x1 - cx;
+        const fy = y1 - cy;
+        
+        // Quadratic coefficients
+        const a = dx * dx + dy * dy;
+        const b = 2 * (fx * dx + fy * dy);
+        const c = (fx * fx + fy * fy) - r * r;
+        
+        const discriminant = b * b - 4 * a * c;
+        
+        if (discriminant < 0) {
+            return null; // No intersection
+        }
+        
+        const sqrtDisc = Math.sqrt(discriminant);
+        
+        // Check both intersection points
+        const t1 = (-b - sqrtDisc) / (2 * a);
+        const t2 = (-b + sqrtDisc) / (2 * a);
+        
+        // Check if intersection is within line segment (0 <= t <= 1)
+        let t = null;
+        if (t1 >= 0 && t1 <= 1) {
+            t = t1;
+        } else if (t2 >= 0 && t2 <= 1) {
+            t = t2;
+        }
+        
+        if (t === null) {
+            return null;
+        }
+        
+        // Calculate intersection point and distance from start
+        const hitX = x1 + t * dx;
+        const hitY = y1 + t * dy;
+        const dist = Math.sqrt((hitX - x1) * (hitX - x1) + (hitY - y1) * (hitY - y1));
+        
+        return { distance: dist };
+    }
+
+    render(ctx, camera) {
+        if (!this.target) return;
+        
+        const sourceScreen = camera.worldToScreen(this.source.x, this.source.y);
+        const targetScreen = camera.worldToScreen(this.target.x, this.target.y);
+        const scale = camera.zoom;
+        const intensity = this.getBeamIntensity();
+        
+        ctx.save();
+        
+        // === MAIN BEAM ===
+        this.renderMainBeam(ctx, sourceScreen, targetScreen, scale, intensity);
+        
+        // === BEAM PARTICLES ===
+        this.renderBeamParticles(ctx, camera, scale, intensity);
+        
+        // === ICE ENCASEMENT (after freeze) ===
+        if (this.targetFrozen) {
+            this.renderIceEncasement(ctx, targetScreen, scale);
+        }
+        
+        // === REFRACTED BEAMS (after freeze) ===
+        if (this.targetFrozen && this.refractedBeams.length > 0) {
+            this.renderRefractedBeams(ctx, targetScreen, scale);
+        }
+        
+        ctx.restore();
+    }
+    
+    renderMainBeam(ctx, sourceScreen, targetScreen, scale, intensity) {
+        const beamWidth = (this.baseWidth + (this.maxWidth - this.baseWidth) * intensity) * scale;
+        
+        // Calculate beam angle for gradient orientation
+        const angle = Math.atan2(targetScreen.y - sourceScreen.y, targetScreen.x - sourceScreen.x);
+        
+        // Outer glow
+        ctx.save();
+        ctx.globalAlpha = intensity * 0.4;
+        ctx.strokeStyle = '#4488ff';
+        ctx.lineWidth = beamWidth * 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sourceScreen.x, sourceScreen.y);
+        ctx.lineTo(targetScreen.x, targetScreen.y);
+        ctx.stroke();
+        ctx.restore();
+        
+        // Middle glow layer
+        ctx.save();
+        ctx.globalAlpha = intensity * 0.6;
+        ctx.strokeStyle = '#66bbff';
+        ctx.lineWidth = beamWidth * 2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sourceScreen.x, sourceScreen.y);
+        ctx.lineTo(targetScreen.x, targetScreen.y);
+        ctx.stroke();
+        ctx.restore();
+        
+        // Core beam - bright white-blue
+        ctx.save();
+        ctx.globalAlpha = intensity;
+        ctx.strokeStyle = '#aaeeff';
+        ctx.lineWidth = beamWidth;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = '#88ddff';
+        ctx.shadowBlur = 15 * intensity * scale;
+        ctx.beginPath();
+        ctx.moveTo(sourceScreen.x, sourceScreen.y);
+        ctx.lineTo(targetScreen.x, targetScreen.y);
+        ctx.stroke();
+        ctx.restore();
+        
+        // Inner white core
+        ctx.save();
+        ctx.globalAlpha = intensity * 0.8;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = beamWidth * 0.4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sourceScreen.x, sourceScreen.y);
+        ctx.lineTo(targetScreen.x, targetScreen.y);
+        ctx.stroke();
+        ctx.restore();
+        
+        // Sparkle effect at target point
+        if (intensity > 0.5) {
+            const sparkleSize = 8 * scale * intensity;
+            const sparkleAlpha = 0.5 + 0.5 * Math.sin(this.age * 15);
+            
+            ctx.save();
+            ctx.globalAlpha = sparkleAlpha;
+            ctx.fillStyle = '#ffffff';
+            
+            // Draw 4-point star
+            ctx.beginPath();
+            for (let i = 0; i < 4; i++) {
+                const starAngle = (Math.PI / 2) * i + this.age * 3;
+                const outerX = targetScreen.x + Math.cos(starAngle) * sparkleSize;
+                const outerY = targetScreen.y + Math.sin(starAngle) * sparkleSize;
+                const innerAngle = starAngle + Math.PI / 4;
+                const innerX = targetScreen.x + Math.cos(innerAngle) * sparkleSize * 0.3;
+                const innerY = targetScreen.y + Math.sin(innerAngle) * sparkleSize * 0.3;
+                
+                if (i === 0) {
+                    ctx.moveTo(outerX, outerY);
+                } else {
+                    ctx.lineTo(outerX, outerY);
+                }
+                ctx.lineTo(innerX, innerY);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+    
+    renderBeamParticles(ctx, camera, scale, intensity) {
+        this.beamParticles.forEach(p => {
+            const pScreen = camera.worldToScreen(p.x, p.y);
+            const alpha = (1 - p.age / p.life) * intensity * 0.7;
+            
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#aaeeff';
+            ctx.shadowColor = '#66ccff';
+            ctx.shadowBlur = 5 * scale;
+            ctx.beginPath();
+            ctx.arc(pScreen.x, pScreen.y, p.size * scale, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        });
+    }
+    
+    renderIceEncasement(ctx, targetScreen, scale) {
+        const encaseProgress = Math.min(1, (this.age - this.freezeTime) / 0.5); // 0.5s to fully encase
+        
+        // Ice crystal shards radiating from enemy
+        this.iceShards.forEach(shard => {
+            const shardProgress = Math.min(1, Math.max(0, (encaseProgress - shard.offset) / (1 - shard.offset)));
+            if (shardProgress <= 0) return;
+            
+            const currentLength = shard.length * shardProgress * scale;
+            const currentWidth = shard.width * shardProgress * scale;
+            
+            ctx.save();
+            ctx.translate(targetScreen.x, targetScreen.y);
+            ctx.rotate(shard.angle);
+            
+            // Ice shard gradient - glassy transparent look
+            const gradient = ctx.createLinearGradient(0, 0, currentLength, 0);
+            gradient.addColorStop(0, `hsla(${shard.hue}, 70%, 80%, 0.9)`);
+            gradient.addColorStop(0.5, `hsla(${shard.hue}, 80%, 90%, 0.6)`);
+            gradient.addColorStop(1, `hsla(${shard.hue}, 90%, 95%, 0.2)`);
+            
+            // Draw crystalline shard shape
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(currentLength * 0.7, -currentWidth / 2);
+            ctx.lineTo(currentLength, 0);
+            ctx.lineTo(currentLength * 0.7, currentWidth / 2);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Shard edge highlight
+            ctx.strokeStyle = `hsla(${shard.hue}, 60%, 95%, 0.8)`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            ctx.restore();
+        });
+        
+        // Central ice sphere around enemy
+        const sphereRadius = (this.target.radius + 10) * scale * encaseProgress;
+        
+        // Outer frost halo
+        const haloGradient = ctx.createRadialGradient(
+            targetScreen.x, targetScreen.y, sphereRadius * 0.5,
+            targetScreen.x, targetScreen.y, sphereRadius * 1.3
+        );
+        haloGradient.addColorStop(0, 'rgba(200, 240, 255, 0.3)');
+        haloGradient.addColorStop(0.7, 'rgba(150, 220, 255, 0.15)');
+        haloGradient.addColorStop(1, 'rgba(100, 200, 255, 0)');
+        
+        ctx.fillStyle = haloGradient;
+        ctx.beginPath();
+        ctx.arc(targetScreen.x, targetScreen.y, sphereRadius * 1.3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner ice shell
+        const iceGradient = ctx.createRadialGradient(
+            targetScreen.x - sphereRadius * 0.3, targetScreen.y - sphereRadius * 0.3, 0,
+            targetScreen.x, targetScreen.y, sphereRadius
+        );
+        iceGradient.addColorStop(0, 'rgba(220, 250, 255, 0.7)');
+        iceGradient.addColorStop(0.4, 'rgba(180, 230, 255, 0.4)');
+        iceGradient.addColorStop(0.8, 'rgba(140, 210, 255, 0.25)');
+        iceGradient.addColorStop(1, 'rgba(100, 180, 255, 0.15)');
+        
+        ctx.fillStyle = iceGradient;
+        ctx.beginPath();
+        ctx.arc(targetScreen.x, targetScreen.y, sphereRadius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Crystalline edge highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 2 * scale;
+        ctx.beginPath();
+        ctx.arc(targetScreen.x, targetScreen.y, sphereRadius, -Math.PI * 0.8, -Math.PI * 0.2);
+        ctx.stroke();
+    }
+    
+    renderRefractedBeams(ctx, targetScreen, scale) {
+        this.refractedBeams.forEach(beam => {
+            const beamAlpha = Math.min(1, beam.age / 0.3) * beam.alpha; // Fade in
+            const beamLength = beam.length * scale;
+            const beamWidth = beam.width * scale;
+            
+            // Calculate end point
+            const endX = targetScreen.x + Math.cos(beam.angle) * beamLength;
+            const endY = targetScreen.y + Math.sin(beam.angle) * beamLength;
+            
+            // Rainbow cycling hue
+            const hue = (beam.hueOffset + this.age * 30) % 360;
+            
+            ctx.save();
+            
+            // Outer prismatic glow
+            ctx.globalAlpha = beamAlpha * 0.3;
+            ctx.strokeStyle = `hsla(${hue}, 80%, 70%, 1)`;
+            ctx.lineWidth = beamWidth * 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(targetScreen.x, targetScreen.y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            
+            // Middle layer with slight hue shift
+            ctx.globalAlpha = beamAlpha * 0.5;
+            ctx.strokeStyle = `hsla(${(hue + 20) % 360}, 70%, 80%, 1)`;
+            ctx.lineWidth = beamWidth * 2;
+            ctx.beginPath();
+            ctx.moveTo(targetScreen.x, targetScreen.y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            
+            // Core - bright white with color tint
+            ctx.globalAlpha = beamAlpha * 0.8;
+            ctx.strokeStyle = `hsla(${(hue + 40) % 360}, 50%, 90%, 1)`;
+            ctx.lineWidth = beamWidth;
+            ctx.shadowColor = `hsla(${hue}, 100%, 70%, 1)`;
+            ctx.shadowBlur = 10 * scale;
+            ctx.beginPath();
+            ctx.moveTo(targetScreen.x, targetScreen.y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            
+            // Sparkle at end
+            const sparklePhase = (this.age * 10 + beam.hueOffset) % (Math.PI * 2);
+            const sparkleSize = (3 + Math.sin(sparklePhase) * 2) * scale;
+            ctx.globalAlpha = beamAlpha * (0.5 + 0.5 * Math.sin(sparklePhase));
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(endX, endY, sparkleSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        });
+    }
+}
+
 // Single orbital shield - orbits player, launches on enemy collision in movement direction
 export class OrbitalShield {
     constructor(owner, orbitRadius, damage, projectilesArray, startAngle) {

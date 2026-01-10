@@ -344,6 +344,8 @@ export class Builder {
         this.deliriousWanderAngle = 0;
         
         this.immobilizedTime = 0;
+        this.permanentlyFrozen = false; // Cryostasis permanent freeze
+        this.cryostasisInvulnerable = false; // Invulnerable while being used as cryostasis prism
         
         // Burning panic state (triggered by Crucible burst at 90%)
         this.burningPanicTime = 0;
@@ -376,8 +378,15 @@ export class Builder {
     applyImmobilize(duration) {
         this.immobilizedTime = Math.max(this.immobilizedTime, duration);
     }
+    
+    applyPermanentFreeze() {
+        this.permanentlyFrozen = true;
+        this.immobilizedTime = 0; // Clear regular immobilize, this is permanent
+    }
 
     applyBurningPanic(duration) {
+        // Permanently frozen enemies can't panic
+        if (this.permanentlyFrozen) return;
         // Start burning in a random direction at high speed
         this.burningPanicTime = duration;
         this.burningPanicAngle = Math.random() * Math.PI * 2;
@@ -390,6 +399,8 @@ export class Builder {
     }
 
     takeDamage(amount) {
+        // Invulnerable while serving as cryostasis prism
+        if (this.cryostasisInvulnerable) return false;
         this.health -= amount;
         this.hurtTime = 0.1;
         return this.health <= 0;
@@ -460,8 +471,8 @@ export class Builder {
             return null;
         }
         
-        // If immobilized, skip all movement (but still update visuals at the end)
-        if (this.immobilizedTime > 0) {
+        // If immobilized or permanently frozen, skip all movement (but still update visuals at the end)
+        if (this.immobilizedTime > 0 || this.permanentlyFrozen) {
             if (this.hurtTime > 0) {
                 this.hurtTime -= dt;
             }
@@ -638,6 +649,41 @@ export class Builder {
             ctx.fill();
         }
         
+        // Permanent freeze visual - ice encasement
+        if (this.permanentlyFrozen) {
+            // Ice shell gradient
+            const iceGradient = ctx.createRadialGradient(
+                screen.x - r * 0.3, screen.y - r * 0.3, 0,
+                screen.x, screen.y, r * 1.4
+            );
+            iceGradient.addColorStop(0, 'rgba(220, 250, 255, 0.8)');
+            iceGradient.addColorStop(0.4, 'rgba(150, 220, 255, 0.5)');
+            iceGradient.addColorStop(0.8, 'rgba(100, 180, 255, 0.3)');
+            iceGradient.addColorStop(1, 'rgba(80, 160, 255, 0.1)');
+            ctx.fillStyle = iceGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ice crystal spikes
+            ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+            ctx.lineWidth = 2 * scale;
+            for (let i = 0; i < 6; i++) {
+                const spikeAngle = (i / 6) * Math.PI * 2;
+                const spikeLen = r * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(
+                    screen.x + Math.cos(spikeAngle) * r,
+                    screen.y + Math.sin(spikeAngle) * r
+                );
+                ctx.lineTo(
+                    screen.x + Math.cos(spikeAngle) * (r + spikeLen),
+                    screen.y + Math.sin(spikeAngle) * (r + spikeLen)
+                );
+                ctx.stroke();
+            }
+        }
+        
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('builder');
         if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
@@ -746,6 +792,8 @@ export class Fighter {
         this.deliriousWanderAngle = 0;
         
         this.immobilizedTime = 0;
+        this.permanentlyFrozen = false; // Cryostasis permanent freeze
+        this.cryostasisInvulnerable = false; // Invulnerable while being used as cryostasis prism
         
         // Burning panic state (triggered by Crucible burst at 90%)
         this.burningPanicTime = 0;
@@ -772,8 +820,14 @@ export class Fighter {
     applyImmobilize(duration) {
         this.immobilizedTime = Math.max(this.immobilizedTime, duration);
     }
+    
+    applyPermanentFreeze() {
+        this.permanentlyFrozen = true;
+        this.immobilizedTime = 0;
+    }
 
     applyBurningPanic(duration) {
+        if (this.permanentlyFrozen) return;
         this.burningPanicTime = duration;
         this.burningPanicAngle = Math.random() * Math.PI * 2;
         this.immobilizedTime = 0;
@@ -785,6 +839,7 @@ export class Fighter {
     }
 
     takeDamage(amount) {
+        if (this.cryostasisInvulnerable) return false;
         this.health -= amount;
         this.hurtTime = 0.1;
         return this.health <= 0;
@@ -849,8 +904,8 @@ export class Fighter {
             return null;
         }
         
-        // If immobilized, skip all movement
-        if (this.immobilizedTime > 0) {
+        // If immobilized or permanently frozen, skip all movement
+        if (this.immobilizedTime > 0 || this.permanentlyFrozen) {
             if (this.hurtTime > 0) {
                 this.hurtTime -= dt;
             }
@@ -983,6 +1038,33 @@ export class Fighter {
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r + 5 * scale, 0, Math.PI * 2);
             ctx.fill();
+        }
+        
+        // Permanent freeze visual - ice encasement
+        if (this.permanentlyFrozen) {
+            const iceGradient = ctx.createRadialGradient(
+                screen.x - r * 0.3, screen.y - r * 0.3, 0,
+                screen.x, screen.y, r * 1.4
+            );
+            iceGradient.addColorStop(0, 'rgba(220, 250, 255, 0.8)');
+            iceGradient.addColorStop(0.4, 'rgba(150, 220, 255, 0.5)');
+            iceGradient.addColorStop(0.8, 'rgba(100, 180, 255, 0.3)');
+            iceGradient.addColorStop(1, 'rgba(80, 160, 255, 0.1)');
+            ctx.fillStyle = iceGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+            ctx.lineWidth = 2 * scale;
+            for (let i = 0; i < 6; i++) {
+                const spikeAngle = (i / 6) * Math.PI * 2;
+                const spikeLen = r * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(screen.x + Math.cos(spikeAngle) * r, screen.y + Math.sin(spikeAngle) * r);
+                ctx.lineTo(screen.x + Math.cos(spikeAngle) * (r + spikeLen), screen.y + Math.sin(spikeAngle) * (r + spikeLen));
+                ctx.stroke();
+            }
         }
         
         // Use cached sprite if available and not hurt
@@ -1392,6 +1474,8 @@ export class FieryEnemy {
         this.deliriousWanderAngle = 0;
         
         this.immobilizedTime = 0;
+        this.permanentlyFrozen = false; // Cryostasis permanent freeze
+        this.cryostasisInvulnerable = false; // Invulnerable while being used as cryostasis prism
         
         // Burning panic state (triggered by Crucible burst at 90%)
         this.burningPanicTime = 0;
@@ -1416,8 +1500,14 @@ export class FieryEnemy {
     applyImmobilize(duration) {
         this.immobilizedTime = Math.max(this.immobilizedTime, duration);
     }
+    
+    applyPermanentFreeze() {
+        this.permanentlyFrozen = true;
+        this.immobilizedTime = 0;
+    }
 
     applyBurningPanic(duration) {
+        if (this.permanentlyFrozen) return;
         this.burningPanicTime = duration;
         this.burningPanicAngle = Math.random() * Math.PI * 2;
         this.immobilizedTime = 0;
@@ -1429,6 +1519,7 @@ export class FieryEnemy {
     }
     
     takeDamage(amount) {
+        if (this.cryostasisInvulnerable) return false;
         this.health -= amount;
         this.hurtTime = 0.1;
         return this.health <= 0;
@@ -1493,8 +1584,8 @@ export class FieryEnemy {
             return null;
         }
         
-        // If immobilized, skip all movement but still track trails
-        if (this.immobilizedTime > 0) {
+        // If immobilized or permanently frozen, skip all movement but still track trails
+        if (this.immobilizedTime > 0 || this.permanentlyFrozen) {
             this.trailTimer += dt;
             if (this.hurtTime > 0) {
                 this.hurtTime -= dt;
@@ -1629,6 +1720,33 @@ export class FieryEnemy {
             ctx.fill();
         }
         
+        // Permanent freeze visual - ice encasement
+        if (this.permanentlyFrozen) {
+            const iceGradient = ctx.createRadialGradient(
+                screen.x - r * 0.3, screen.y - r * 0.3, 0,
+                screen.x, screen.y, r * 1.4
+            );
+            iceGradient.addColorStop(0, 'rgba(220, 250, 255, 0.8)');
+            iceGradient.addColorStop(0.4, 'rgba(150, 220, 255, 0.5)');
+            iceGradient.addColorStop(0.8, 'rgba(100, 180, 255, 0.3)');
+            iceGradient.addColorStop(1, 'rgba(80, 160, 255, 0.1)');
+            ctx.fillStyle = iceGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+            ctx.lineWidth = 2 * scale;
+            for (let i = 0; i < 6; i++) {
+                const spikeAngle = (i / 6) * Math.PI * 2;
+                const spikeLen = r * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(screen.x + Math.cos(spikeAngle) * r, screen.y + Math.sin(spikeAngle) * r);
+                ctx.lineTo(screen.x + Math.cos(spikeAngle) * (r + spikeLen), screen.y + Math.sin(spikeAngle) * (r + spikeLen));
+                ctx.stroke();
+            }
+        }
+        
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('fiery');
         if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
@@ -1715,6 +1833,8 @@ export class GravitationalEnemy {
         this.deliriousWanderAngle = 0;
         
         this.immobilizedTime = 0;
+        this.permanentlyFrozen = false; // Cryostasis permanent freeze
+        this.cryostasisInvulnerable = false; // Invulnerable while being used as cryostasis prism
         
         // Burning panic state (triggered by Crucible burst at 90%)
         this.burningPanicTime = 0;
@@ -1741,8 +1861,14 @@ export class GravitationalEnemy {
     applyImmobilize(duration) {
         this.immobilizedTime = Math.max(this.immobilizedTime, duration);
     }
+    
+    applyPermanentFreeze() {
+        this.permanentlyFrozen = true;
+        this.immobilizedTime = 0;
+    }
 
     applyBurningPanic(duration) {
+        if (this.permanentlyFrozen) return;
         this.burningPanicTime = duration;
         this.burningPanicAngle = Math.random() * Math.PI * 2;
         this.immobilizedTime = 0;
@@ -1754,6 +1880,7 @@ export class GravitationalEnemy {
     }
     
     takeDamage(amount) {
+        if (this.cryostasisInvulnerable) return false;
         this.health -= amount;
         this.hurtTime = 0.1;
         return this.health <= 0;
@@ -1819,8 +1946,8 @@ export class GravitationalEnemy {
             return null;
         }
         
-        // If immobilized, skip all movement
-        if (this.immobilizedTime > 0) {
+        // If immobilized or permanently frozen, skip all movement
+        if (this.immobilizedTime > 0 || this.permanentlyFrozen) {
             return null;
         }
         
@@ -1918,6 +2045,33 @@ export class GravitationalEnemy {
             ctx.fill();
         }
         
+        // Permanent freeze visual - ice encasement
+        if (this.permanentlyFrozen) {
+            const iceGradient = ctx.createRadialGradient(
+                screen.x - r * 0.3, screen.y - r * 0.3, 0,
+                screen.x, screen.y, r * 1.4
+            );
+            iceGradient.addColorStop(0, 'rgba(220, 250, 255, 0.8)');
+            iceGradient.addColorStop(0.4, 'rgba(150, 220, 255, 0.5)');
+            iceGradient.addColorStop(0.8, 'rgba(100, 180, 255, 0.3)');
+            iceGradient.addColorStop(1, 'rgba(80, 160, 255, 0.1)');
+            ctx.fillStyle = iceGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+            ctx.lineWidth = 2 * scale;
+            for (let i = 0; i < 6; i++) {
+                const spikeAngle = (i / 6) * Math.PI * 2;
+                const spikeLen = r * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(screen.x + Math.cos(spikeAngle) * r, screen.y + Math.sin(spikeAngle) * r);
+                ctx.lineTo(screen.x + Math.cos(spikeAngle) * (r + spikeLen), screen.y + Math.sin(spikeAngle) * (r + spikeLen));
+                ctx.stroke();
+            }
+        }
+        
         // Use cached sprite if available and not hurt
         const sprite = spriteCache.getSprite('gravitational');
         if (sprite && !this.hurtTime && !simplifiedRendering && !this.burningPanicTime) {
@@ -1996,6 +2150,8 @@ export class FastPurpleEnemy {
         this.deliriousWanderAngle = 0;
         
         this.immobilizedTime = 0;
+        this.permanentlyFrozen = false; // Cryostasis permanent freeze
+        this.cryostasisInvulnerable = false; // Invulnerable while being used as cryostasis prism
         
         // Burning panic state (triggered by Crucible burst at 90%)
         this.burningPanicTime = 0;
@@ -2022,8 +2178,14 @@ export class FastPurpleEnemy {
     applyImmobilize(duration) {
         this.immobilizedTime = Math.max(this.immobilizedTime, duration);
     }
+    
+    applyPermanentFreeze() {
+        this.permanentlyFrozen = true;
+        this.immobilizedTime = 0;
+    }
 
     applyBurningPanic(duration) {
+        if (this.permanentlyFrozen) return;
         this.burningPanicTime = duration;
         this.burningPanicAngle = Math.random() * Math.PI * 2;
         this.immobilizedTime = 0;
@@ -2035,6 +2197,7 @@ export class FastPurpleEnemy {
     }
     
     takeDamage(amount) {
+        if (this.cryostasisInvulnerable) return false;
         this.health -= amount;
         this.hurtTime = 0.1;
         return this.health <= 0;
@@ -2100,8 +2263,8 @@ export class FastPurpleEnemy {
             return null;
         }
         
-        // If immobilized, skip all movement
-        if (this.immobilizedTime > 0) {
+        // If immobilized or permanently frozen, skip all movement
+        if (this.immobilizedTime > 0 || this.permanentlyFrozen) {
             return null;
         }
         
@@ -2171,6 +2334,33 @@ export class FastPurpleEnemy {
             ctx.beginPath();
             ctx.arc(screen.x, screen.y, r + 4 * scale, 0, Math.PI * 2);
             ctx.fill();
+        }
+        
+        // Permanent freeze visual - ice encasement
+        if (this.permanentlyFrozen) {
+            const iceGradient = ctx.createRadialGradient(
+                screen.x - r * 0.3, screen.y - r * 0.3, 0,
+                screen.x, screen.y, r * 1.4
+            );
+            iceGradient.addColorStop(0, 'rgba(220, 250, 255, 0.8)');
+            iceGradient.addColorStop(0.4, 'rgba(150, 220, 255, 0.5)');
+            iceGradient.addColorStop(0.8, 'rgba(100, 180, 255, 0.3)');
+            iceGradient.addColorStop(1, 'rgba(80, 160, 255, 0.1)');
+            ctx.fillStyle = iceGradient;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, r * 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+            ctx.lineWidth = 2 * scale;
+            for (let i = 0; i < 6; i++) {
+                const spikeAngle = (i / 6) * Math.PI * 2;
+                const spikeLen = r * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(screen.x + Math.cos(spikeAngle) * r, screen.y + Math.sin(spikeAngle) * r);
+                ctx.lineTo(screen.x + Math.cos(spikeAngle) * (r + spikeLen), screen.y + Math.sin(spikeAngle) * (r + spikeLen));
+                ctx.stroke();
+            }
         }
         
         // Use cached sprite if available and not hurt

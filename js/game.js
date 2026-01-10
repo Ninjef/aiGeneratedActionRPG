@@ -4,7 +4,7 @@ import { Player } from './player.js';
 import { Camera } from './camera.js';
 import { Builder, Fighter, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, spriteCache, setSimplifiedRendering } from './enemy.js';
 import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
-import { Projectile, AreaEffect, RingEffect, CrucibleEffect } from './projectile.js';
+import { Projectile, AreaEffect, RingEffect, CrucibleEffect, CryostasisBeam } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
 import { PowerRune } from './powerRune.js';
 import { FloatingText } from './floatingText.js';
@@ -111,6 +111,7 @@ class Game {
         this.areaEffects = [];
         this.ringEffects = [];
         this.crucibleEffects = [];
+        this.cryostasisBeams = [];
         this.floatingTexts = [];
         
         // Spawners
@@ -126,7 +127,8 @@ class Game {
             this.projectiles,
             this.areaEffects,
             this.ringEffects,
-            this.crucibleEffects
+            this.crucibleEffects,
+            this.cryostasisBeams
         );
         // Set all enemy arrays for power manager
         this.updatePowerManagerEnemies();
@@ -742,6 +744,64 @@ class Game {
             }
         }
         
+        // Update cryostasis beams
+        for (let i = this.cryostasisBeams.length - 1; i >= 0; i--) {
+            const beam = this.cryostasisBeams[i];
+            if (!beam.update(dt)) {
+                // Beam expired - ALWAYS remove invulnerability from target
+                if (beam.target) {
+                    beam.target.cryostasisInvulnerable = false;
+                }
+                this.cryostasisBeams.splice(i, 1);
+                continue;
+            }
+            
+            // Check if freeze should be triggered (at 2 seconds)
+            if (beam.shouldTriggerFreeze()) {
+                beam.markFreezeTriggered();
+                
+                // Apply permanent freeze to the target (becomes an ice structure)
+                // Target is already invulnerable from when beam was cast
+                if (beam.target && !beam.target._dead && typeof beam.target.applyPermanentFreeze === 'function') {
+                    beam.target.applyPermanentFreeze();
+                }
+            }
+            
+            // Handle refracted beam damage
+            if (beam.canDamage()) {
+                // Get all enemies for collision checking
+                const allEnemies = [
+                    ...this.builders,
+                    ...this.fighters,
+                    ...this.fieryEnemies,
+                    ...this.gravitationalEnemies,
+                    ...this.fastPurpleEnemies,
+                    ...this.spawnBlocks
+                ].filter(e => !e._dead);
+                
+                // Check refracted beam collisions and deal damage
+                const damage = beam.getDamage();
+                const hitEnemies = beam.checkBeamCollision(allEnemies);
+                
+                for (const enemy of hitEnemies) {
+                    if (enemy.takeDamage(damage)) {
+                        this.awardXp(enemy.xp);
+                        if (enemy._isSpawnBlock) {
+                            this.crystals.push(new Crystal(enemy.x, enemy.y, enemy.crystalType));
+                        }
+                        if (enemy._sourceArray) {
+                            const idx = enemy._sourceArray.indexOf(enemy);
+                            if (idx !== -1) {
+                                enemy._sourceArray.splice(idx, 1);
+                            }
+                        }
+                        enemy._dead = true;
+                        this.enemiesDefeated++;
+                    }
+                }
+            }
+        }
+        
         // Update ring effects using spatial grid
         for (let i = this.ringEffects.length - 1; i >= 0; i--) {
             const ring = this.ringEffects[i];
@@ -1185,6 +1245,11 @@ class Game {
         // Draw crucible effects (under everything)
         for (const crucible of this.crucibleEffects) {
             crucible.render(ctx, this.camera);
+        }
+        
+        // Draw cryostasis beams
+        for (const beam of this.cryostasisBeams) {
+            beam.render(ctx, this.camera);
         }
         
         // Draw area effects (under everything)
