@@ -2,7 +2,7 @@
 // This base class contains all status effect properties, methods, and shared update/render logic
 
 import { normalize } from '../utils.js';
-import { spriteCache, simplifiedRendering } from '../enemy.js';
+import { spriteCache, simplifiedRendering } from '../spriteCache.js';
 
 /**
  * BaseEnemy class that all enemy types extend

@@ -5,7 +5,7 @@
 export { BaseEnemy } from './BaseEnemy.js';
 
 // Enemy types
-export { Builder, Enemy } from './Builder.js';
+export { Builder } from './Builder.js';
 export { Fighter } from './Fighter.js';
 export { FieryEnemy } from './FieryEnemy.js';
 export { GravitationalEnemy } from './GravitationalEnemy.js';

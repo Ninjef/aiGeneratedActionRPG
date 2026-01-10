@@ -3,7 +3,7 @@
 import { BaseEnemy } from './BaseEnemy.js';
 import { ENEMY_TYPES } from './EnemyTypes.js';
 import { distance, normalize } from '../utils.js';
-import { spriteCache, simplifiedRendering } from '../enemy.js';
+import { spriteCache, simplifiedRendering } from '../spriteCache.js';
 
 export class Builder extends BaseEnemy {
     constructor(x, y) {
@@ -226,7 +226,4 @@ export class Builder extends BaseEnemy {
         ctx.restore();
     }
 }
-
-// For backward compatibility
-export const Enemy = Builder;
 

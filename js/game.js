@@ -2,13 +2,13 @@
 
 import { Player } from './player.js';
 import { Camera } from './camera.js';
-// Import enemy classes from the new entities module
+// Import enemy classes from the entities module
 import { 
     Builder, Fighter, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, 
     SpawnBlock, EnemyManager, EnemySpawner 
 } from './entities/index.js';
-// Keep spriteCache and setSimplifiedRendering from enemy.js (rendering utilities)
-import { spriteCache, setSimplifiedRendering } from './enemy.js';
+// Import sprite cache and rendering utilities
+import { spriteCache, setSimplifiedRendering } from './spriteCache.js';
 import { Crystal, CrystalSpawner, CRYSTAL_TYPES } from './crystal.js';
 import { Projectile, AreaEffect, RingEffect, CrucibleEffect, CryostasisBeam } from './projectile.js';
 import { PowerManager, POWERS } from './powers.js';
@@ -823,7 +823,7 @@ class Game {
             ...this.enemyManager.getAlive(),
             ...this.spawnBlocks.filter(b => !b._dead)
         ];
-        this.powerManager.setEnemies(allEnemies, []);
+        this.powerManager.setEnemies(allEnemies);
     }
 
     createFireballExplosion(x, y, radius = 120) {
@@ -1017,39 +1017,6 @@ class Game {
         }
         
         return killed;
-    }
-    
-    /**
-     * Handle player taking damage from an enemy
-     * Centralizes player damage handling with event emission
-     * 
-     * @param {object} enemy - The enemy dealing damage
-     * @param {number} damage - Amount of damage (defaults to enemy.damage)
-     * @returns {boolean} - True if damage was applied (not blocked by i-frames)
-     */
-    handlePlayerDamage(enemy, damage = null) {
-        const actualDamage = damage ?? enemy.damage;
-        const healthBefore = this.player.health;
-        
-        const damageApplied = this.player.takeDamage(actualDamage);
-        
-        if (damageApplied) {
-            // Emit player damaged event
-            this.eventBus.emit(GameEvents.PLAYER_DAMAGED, {
-                damage: actualDamage,
-                source: enemy,
-                healthBefore,
-                healthAfter: this.player.health
-            });
-            
-            // Apply frozen armor slow effect if player has it
-            const frozenArmor = this.player.powers.find(p => p.id === 'frozenArmor');
-            if (frozenArmor && enemy.applySlow) {
-                enemy.applySlow(0.3 + frozenArmor.level * 0.1, 1.0);
-            }
-        }
-        
-        return damageApplied;
     }
 
     triggerPassiveUpgrade() {

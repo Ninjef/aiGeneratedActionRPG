@@ -209,7 +209,3 @@ export const GameEvents = {
     SPAWN_BLOCK_DESTROYED: 'spawnBlock:destroyed'
 };
 
-// Create a default singleton instance for global use
-export const globalEventBus = new EventBus();
-
-

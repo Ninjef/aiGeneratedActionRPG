@@ -3,7 +3,7 @@
 import { BaseEnemy } from './BaseEnemy.js';
 import { ENEMY_TYPES } from './EnemyTypes.js';
 import { distance, normalize, angle } from '../utils.js';
-import { spriteCache, simplifiedRendering } from '../enemy.js';
+import { spriteCache, simplifiedRendering } from '../spriteCache.js';
 
 export class Fighter extends BaseEnemy {
     constructor(x, y) {

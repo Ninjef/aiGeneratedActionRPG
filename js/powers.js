@@ -689,32 +689,10 @@ export const POWERS = {
     }
 };
 
-// Legacy icon for fireballBarrage (not currently in POWERS but kept for compatibility)
-export const LEGACY_ICONS = {
-    fireballBarrage: {
-        color: '#ff6b35',
-        glowColor: 'rgba(255, 107, 53, 0.5)',
-        render: (ctx, x, y, size) => {
-            ctx.beginPath();
-            ctx.moveTo(x, y - size * 0.8);
-            ctx.quadraticCurveTo(x + size * 0.5, y - size * 0.3, x + size * 0.3, y + size * 0.5);
-            ctx.quadraticCurveTo(x, y + size * 0.2, x, y + size * 0.5);
-            ctx.quadraticCurveTo(x, y + size * 0.2, x - size * 0.3, y + size * 0.5);
-            ctx.quadraticCurveTo(x - size * 0.5, y - size * 0.3, x, y - size * 0.8);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        }
-    }
-};
-
-// Helper to get power icon (checks POWERS first, then LEGACY_ICONS)
+// Helper to get power icon from POWERS definitions
 export function getPowerIcon(powerId) {
     if (POWERS[powerId]?.icon) {
         return POWERS[powerId].icon;
-    }
-    if (LEGACY_ICONS[powerId]) {
-        return LEGACY_ICONS[powerId];
     }
     // Fallback for unknown powers
     return {
@@ -740,16 +718,14 @@ export class PowerManager {
         this.orbitalShields = [];
         this.nextShieldAngle = 0;
         this.enemies = [];
-        this.champions = [];
     }
 
-    setEnemies(enemies, champions = []) {
+    setEnemies(enemies) {
         this.enemies = enemies;
-        this.champions = champions;
     }
     
     getAllTargets() {
-        return [...this.enemies, ...this.champions];
+        return this.enemies;
     }
 
     /**

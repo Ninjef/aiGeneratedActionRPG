@@ -3,7 +3,7 @@
 import { BaseEnemy } from './BaseEnemy.js';
 import { ENEMY_TYPES, getEnemyConfig } from './EnemyTypes.js';
 import { normalize } from '../utils.js';
-import { spriteCache, simplifiedRendering } from '../enemy.js';
+import { spriteCache, simplifiedRendering } from '../spriteCache.js';
 
 export class FastPurpleEnemy extends BaseEnemy {
     constructor(x, y, scaling = null) {

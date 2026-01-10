@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Builder, Fighter, ENEMY_TYPES, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy } from '../js/enemy.js';
+import { Builder, Fighter, EnemySpawner, SpawnBlock, FieryEnemy, GravitationalEnemy, FastPurpleEnemy, ENEMY_TYPES, EnemyManager } from '../js/entities/index.js';
 import { Crystal } from '../js/crystal.js';
 
 describe('Builder', () => {
@@ -25,7 +25,7 @@ describe('Builder', () => {
             const playerY = 200;
             const initialX = builder.x;
             
-            builder.update(0.1, playerX, playerY, []);
+            builder.update(0.1, playerX, playerY, { crystals: [], spawnBlocks: [] });
             
             // Should have moved away from player (x decreased)
             expect(builder.x).toBeLessThan(initialX);
@@ -35,7 +35,7 @@ describe('Builder', () => {
             const crystals = [new Crystal(200, 200, 'heat')];
             const initialX = builder.x;
             
-            builder.update(0.1, 500, 500, crystals); // Player far away
+            builder.update(0.1, 500, 500, { crystals, spawnBlocks: [] }); // Player far away
             
             // Should have moved toward crystal
             expect(builder.x).toBeGreaterThan(initialX);
@@ -45,7 +45,7 @@ describe('Builder', () => {
             const initialX = builder.x;
             const initialY = builder.y;
             
-            builder.update(0.1, 500, 500, []); // Player and crystals far away
+            builder.update(0.1, 500, 500, { crystals: [], spawnBlocks: [] }); // Player and crystals far away
             
             // Should have moved (wandering)
             const moved = builder.x !== initialX || builder.y !== initialY;
@@ -78,7 +78,7 @@ describe('Fighter', () => {
             const initialX = fighter.x;
             const initialY = fighter.y;
             
-            fighter.update(0.1, playerX, playerY, []);
+            fighter.update(0.1, playerX, playerY, { spawnBlocks: [] });
             
             // Should have moved toward player
             expect(fighter.x).toBeGreaterThan(initialX);
@@ -91,7 +91,7 @@ describe('Fighter', () => {
             const tower = new SpawnBlock(100, 200, 'heat'); // Tower is below fighter
             
             // Both player and tower are at same distance initially
-            fighter.update(0.1, playerX, playerY, [tower]);
+            fighter.update(0.1, playerX, playerY, { spawnBlocks: [tower] });
             
             // Should have moved toward tower (y increases) instead of player (x increases)
             expect(fighter.targetTower).toBe(tower);
@@ -102,7 +102,7 @@ describe('Fighter', () => {
             const tower = new SpawnBlock(100, 300, 'cold');
             const initialY = fighter.y;
             
-            fighter.update(0.1, 500, 500, [tower]); // Player far away
+            fighter.update(0.1, 500, 500, { spawnBlocks: [tower] }); // Player far away
             
             // Should have moved toward tower
             expect(fighter.y).toBeGreaterThan(initialY);
@@ -112,7 +112,7 @@ describe('Fighter', () => {
         it('should wander when no tower or player nearby', () => {
             // Put fighter far from player (outside 6000 aggro range)
             fighter = new Fighter(0, 0);
-            fighter.update(0.1, 10000, 10000, []); // Player very far away, no towers
+            fighter.update(0.1, 10000, 10000, { spawnBlocks: [] }); // Player very far away, no towers
             
             // Should have moved (wandering)
             const moved = fighter.x !== 0 || fighter.y !== 0;
@@ -370,10 +370,12 @@ function createMockCamera(width = 800, height = 600, zoom = 0.25) {
 describe('EnemySpawner', () => {
     let spawner;
     let mockCamera;
+    let enemyManager;
 
     beforeEach(() => {
         spawner = new EnemySpawner();
         mockCamera = createMockCamera();
+        enemyManager = new EnemyManager();
     });
 
     describe('getSpawnDistances', () => {
@@ -397,29 +399,32 @@ describe('EnemySpawner', () => {
 
     describe('update', () => {
         it('should track game time', () => {
-            spawner.update(1.0, 0, 0, [], [], [], mockCamera);
+            spawner.update(1.0, 0, 0, enemyManager, mockCamera);
             expect(spawner.gameTime).toBe(1.0);
         });
 
         it('should increase difficulty over time', () => {
-            spawner.update(30, 0, 0, [], [], [], mockCamera);
+            spawner.update(30, 0, 0, enemyManager, mockCamera);
             expect(spawner.difficulty).toBeGreaterThan(1);
         });
 
         it('should spawn builders after interval', () => {
-            const builders = [];
-            spawner.update(3.0, 0, 0, builders, [], [], mockCamera);
+            spawner.update(3.0, 0, 0, enemyManager, mockCamera);
+            const builders = enemyManager.getByType('builder');
             expect(builders.length).toBeGreaterThan(0);
             expect(builders[0].type).toBe('builder');
         });
 
         it('should not exceed max builders', () => {
-            const builders = new Array(spawner.maxBuilders).fill(null).map(() => new Builder(0, 0));
-            const initialCount = builders.length;
+            // Fill enemy manager with builders up to max
+            for (let i = 0; i < spawner.maxBuilders; i++) {
+                enemyManager.add(new Builder(0, 0));
+            }
+            const initialCount = enemyManager.getCountByType('builder');
             
-            spawner.update(3.0, 0, 0, builders, [], [], mockCamera);
+            spawner.update(3.0, 0, 0, enemyManager, mockCamera);
             
-            expect(builders.length).toBe(initialCount);
+            expect(enemyManager.getCountByType('builder')).toBe(initialCount);
         });
     });
 });

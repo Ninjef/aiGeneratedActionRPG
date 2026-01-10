@@ -1,6 +1,6 @@
 // EventBus tests
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EventBus, GameEvents, globalEventBus } from '../../js/events/EventBus.js';
+import { EventBus, GameEvents } from '../../js/events/EventBus.js';
 
 describe('EventBus', () => {
     let eventBus;
@@ -308,17 +308,4 @@ describe('GameEvents', () => {
         expect(GameEvents.SPAWN_BLOCK_DESTROYED).toBe('spawnBlock:destroyed');
     });
 });
-
-describe('globalEventBus', () => {
-    it('should be an instance of EventBus', () => {
-        expect(globalEventBus).toBeInstanceOf(EventBus);
-    });
-    
-    it('should be a singleton', async () => {
-        // Import again to verify it's the same instance
-        const { globalEventBus: anotherImport } = await import('../../js/events/EventBus.js');
-        expect(anotherImport).toBe(globalEventBus);
-    });
-});
-
 

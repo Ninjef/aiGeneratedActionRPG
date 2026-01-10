@@ -223,7 +223,7 @@ describe('Player', () => {
 
         describe('collectPowerRune', () => {
             it('should grant power at level 1 on first rune', () => {
-                const result = player.collectPowerRune('fireballBarrage', false);
+                const result = player.collectPowerRune('infernoRing', false);
                 
                 expect(result.isNew).toBe(true);
                 expect(result.leveledUp).toBe(false);
@@ -233,8 +233,8 @@ describe('Player', () => {
             });
 
             it('should increment rune count without leveling up', () => {
-                player.collectPowerRune('fireballBarrage', false);
-                const result = player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
+                const result = player.collectPowerRune('infernoRing', false);
                 
                 expect(result.isNew).toBe(false);
                 expect(result.leveledUp).toBe(false);
@@ -244,11 +244,11 @@ describe('Player', () => {
 
             it('should level up when enough runes collected', () => {
                 // First rune: level 1 (1 total)
-                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
                 // Second rune: still level 1 (2 total, need 3 for level 2)
-                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
                 // Third rune: level up to 2 (3 total = 1+2)
-                const result = player.collectPowerRune('fireballBarrage', false);
+                const result = player.collectPowerRune('infernoRing', false);
                 
                 expect(result.isNew).toBe(false);
                 expect(result.leveledUp).toBe(true);
@@ -257,24 +257,24 @@ describe('Player', () => {
             });
 
             it('should track multiple different powers separately', () => {
-                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
                 player.collectPowerRune('iceShards', false);
                 
                 expect(player.powers).toHaveLength(2);
-                expect(player.powers.find(p => p.id === 'fireballBarrage').level).toBe(1);
+                expect(player.powers.find(p => p.id === 'infernoRing').level).toBe(1);
                 expect(player.powers.find(p => p.id === 'iceShards').level).toBe(1);
             });
 
             it('should level up from 2 to 3 correctly', () => {
                 // Level 1: 1 rune
-                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
                 // Level 2: need 2 more (3 total)
-                player.collectPowerRune('fireballBarrage', false);
-                player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
+                player.collectPowerRune('infernoRing', false);
                 // Level 3: need 3 more (6 total)
-                player.collectPowerRune('fireballBarrage', false);
-                player.collectPowerRune('fireballBarrage', false);
-                const result = player.collectPowerRune('fireballBarrage', false);
+                player.collectPowerRune('infernoRing', false);
+                player.collectPowerRune('infernoRing', false);
+                const result = player.collectPowerRune('infernoRing', false);
                 
                 expect(result.leveledUp).toBe(true);
                 expect(result.power.level).toBe(3);
@@ -288,8 +288,8 @@ describe('Player', () => {
             });
 
             it('should return correct progress at level 1', () => {
-                player.collectPowerRune('fireballBarrage', false);
-                const progress = player.getPowerProgress('fireballBarrage');
+                player.collectPowerRune('infernoRing', false);
+                const progress = player.getPowerProgress('infernoRing');
                 
                 expect(progress.level).toBe(1);
                 expect(progress.runesProgress).toBe(0); // 1 - 1 = 0
@@ -297,9 +297,9 @@ describe('Player', () => {
             });
 
             it('should return correct progress mid-level', () => {
-                player.collectPowerRune('fireballBarrage', false);
-                player.collectPowerRune('fireballBarrage', false);
-                const progress = player.getPowerProgress('fireballBarrage');
+                player.collectPowerRune('infernoRing', false);
+                player.collectPowerRune('infernoRing', false);
+                const progress = player.getPowerProgress('infernoRing');
                 
                 expect(progress.level).toBe(1);
                 expect(progress.runesProgress).toBe(1); // 2 - 1 = 1
