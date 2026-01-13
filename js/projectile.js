@@ -531,7 +531,7 @@ export class CryostasisBeam {
         
         // Refracted beams - emerge after freeze, direction based on player angle
         this.refractedBeams = [];
-        this.baseRefractCount = 3; // Start with 3 beams
+        this.baseRefractCount = 4; // Start with 3 beams
         this.maxRefractCount = Math.min(8, 3 + Math.floor(this.level / 2)); // Scales with level
         this.refractSpawnInterval = 0.5; // Time between new refract beams spawning (after initial burst)
         this.lastRefractSpawn = 0;
